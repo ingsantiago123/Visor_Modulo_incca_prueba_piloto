@@ -1,0 +1,828 @@
+/* ==========================================================================
+   U.INCCA · Visor de unidad/semana — recursos internos de un módulo
+   (lecturas, videos, documentos, enlaces). Página con scroll normal,
+   pensada para incrustarse como iframe en Moodle. Cada recurso es una
+   sección a pantalla completa con un tema propio según su tipo (claro,
+   oscuro, papel, cálido, acento) — no una tarjeta flotando en una
+   columna — navegada por un riel flotante (desktop) o una barra
+   pegajosa (móvil). Paleta y tipografía institucional.
+   ========================================================================== */
+
+:root {
+  --oxford-blue: #040C38;
+  --dodger-blue: #2B8BFA;
+  --royal-blue: #0B349D;
+  --light-cyan: #65CBE3;
+
+  --old-gold: #CBB54E;
+  --bronze: #A58540;
+  --platinum: #E2E6E9;
+  --white: #FFFFFF;
+
+  --gradient-institutional: linear-gradient(115deg, var(--light-cyan), var(--dodger-blue) 45%, var(--royal-blue) 75%, var(--oxford-blue));
+  --gradient-hero: linear-gradient(125deg, var(--light-cyan), var(--dodger-blue) 40%, var(--royal-blue) 72%, var(--oxford-blue));
+  --gradient-gold: linear-gradient(to left, var(--old-gold), var(--bronze));
+
+  --text-body: #262b40;
+  --text-muted: #565f7a;
+
+  --font-base: Roboto, 'Fira Sans', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+  --font-display: 'Outfit', Roboto, 'Segoe UI', Arial, sans-serif;
+
+  --radius-sm: 0.5rem;
+  --radius-md: 1rem;
+  --radius-lg: 1.5rem;
+  --shadow-soft: 0 10px 30px rgba(4, 12, 56, 0.1);
+  --shadow-strong: 0 20px 45px rgba(4, 12, 56, 0.22);
+  --ease-out: cubic-bezier(.16,.84,.44,1);
+  --ease-bounce: cubic-bezier(.34,1.56,.64,1);
+}
+
+* , *::before, *::after { box-sizing: border-box; }
+
+html { scroll-behavior: smooth; }
+
+html, body {
+  margin: 0;
+  min-height: 100%;
+  background: var(--oxford-blue);
+}
+
+body {
+  font-family: var(--font-base);
+  font-size: 16px;
+  line-height: 1.6;
+  color: var(--text-body);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+img, svg { max-width: 100%; display: block; }
+a { color: var(--royal-blue); text-decoration: none; }
+a:hover { color: var(--dodger-blue); }
+h1, h2, h3, h4 { margin: 0; font-family: var(--font-display); letter-spacing: -.01em; }
+h1 { font-weight: 800; }
+h2, h3 { font-weight: 700; }
+p { margin: 0; }
+ul { margin: 0; padding: 0; list-style: none; }
+button { font-family: inherit; cursor: pointer; background: none; border: none; color: inherit; }
+
+.visually-hidden {
+  position: absolute !important;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip: rect(0,0,0,0);
+  white-space: nowrap;
+  border: 0;
+}
+
+:focus-visible { outline: 3px solid var(--light-cyan); outline-offset: 2px; }
+
+/* Varios elementos de abajo fijan su propio "display" sin condición (p.ej.
+   .unit-empty{display:flex}), lo que por origen de cascada (autor > UA)
+   le ganaría a la regla UA "[hidden]{display:none}" aunque JS ponga el
+   atributo — esta regla global evita esa categoría entera de bugs. */
+[hidden] { display: none !important; }
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+@keyframes incca-rise { from { opacity: 0; transform: translateY(26px);} to { opacity: 1; transform: translateY(0);} }
+@keyframes incca-float { 0%{transform:translate(0,0) rotate(0deg)} 50%{transform:translate(18px,-24px) rotate(8deg)} 100%{transform:translate(0,0) rotate(0deg)} }
+@keyframes incca-float2 { 0%{transform:translate(0,0) rotate(0deg)} 50%{transform:translate(-22px,18px) rotate(-6deg)} 100%{transform:translate(0,0) rotate(0deg)} }
+@keyframes incca-pulse-ring { 0%{box-shadow:0 0 0 0 rgba(203,181,78,.55)} 70%{box-shadow:0 0 0 16px rgba(203,181,78,0)} 100%{box-shadow:0 0 0 0 rgba(203,181,78,0)} }
+@keyframes incca-bounce { 0%,100%{transform:translateY(0);} 50%{transform:translateY(7px);} }
+
+/* ==========================================================================
+   Barra de progreso de lectura
+   ========================================================================== */
+.scroll-progress {
+  position: fixed; top: 0; left: 0; width: 100%; height: 4px;
+  background: linear-gradient(to right, var(--old-gold), var(--light-cyan));
+  box-shadow: 0 0 12px rgba(203,181,78,.6);
+  transform: scaleX(0); transform-origin: 0 0;
+  z-index: 300; transition: transform .1s linear;
+}
+
+/* ==========================================================================
+   RIEL flotante (desktop) — navegación fija a la izquierda, vertical
+   ========================================================================== */
+.unit-rail {
+  position: fixed;
+  left: 24px; top: 50%;
+  transform: translateY(-50%);
+  z-index: 250;
+  padding: 16px;
+  border-radius: 22px;
+  background: rgba(4,12,56,.35);
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  box-shadow: none;
+  transition: background .35s var(--ease-out), box-shadow .35s var(--ease-out);
+}
+.unit-rail.is-hover { background: rgba(4,12,56,.85); box-shadow: 0 20px 45px rgba(4,12,56,.3); }
+.unit-rail-track { position: relative; }
+.unit-rail-line {
+  position: absolute; left: 11px; top: 14px; bottom: 14px; width: 2px;
+  background: rgba(255,255,255,.2);
+}
+.unit-rail-fill {
+  position: absolute; left: 11px; top: 14px; width: 2px; height: 0%;
+  background: linear-gradient(to bottom, var(--old-gold), var(--light-cyan));
+  transition: height .4s var(--ease-out);
+}
+.unit-rail-item {
+  position: relative; z-index: 1;
+  display: flex; align-items: center;
+  padding: 7px 0;
+  cursor: pointer;
+}
+.unit-rail-dot {
+  flex: 0 0 auto;
+  width: 24px; height: 24px;
+  border-radius: 50%;
+  background: rgba(255,255,255,.12);
+  border: 2px solid rgba(255,255,255,.35);
+  display: flex; align-items: center; justify-content: center;
+  color: rgba(255,255,255,.7);
+  font-size: 10px;
+  transform: scale(1);
+  box-shadow: none;
+  transition: all .3s var(--ease-bounce);
+}
+.unit-rail-item.is-active .unit-rail-dot {
+  background: linear-gradient(115deg, var(--light-cyan), var(--dodger-blue), var(--royal-blue));
+  border-color: var(--old-gold);
+  color: var(--white);
+  transform: scale(1.15);
+  box-shadow: 0 6px 16px rgba(203,181,78,.5);
+}
+.unit-rail-label {
+  display: inline-block;
+  width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  transition: width .3s var(--ease-out);
+}
+.unit-rail.is-hover .unit-rail-label { width: 190px; }
+.unit-rail-label span {
+  display: inline-block;
+  padding-left: 12px;
+  font-family: var(--font-display);
+  font-size: 12.5px; font-weight: 600;
+  color: var(--white);
+  white-space: nowrap;
+}
+
+.unit-rail-current { display: none; }
+
+/* Por debajo de 980px el riel no desaparece: se reorienta a un dock
+   horizontal flotante y fijo abajo. Con varios recursos (5, 8, 12...),
+   mostrar ícono+etiqueta por ítem (como en escritorio) no cabe sin verse
+   apretado — así que acá los puntos son SOLO ícono (compactos, escalan
+   a cualquier cantidad) y el nombre completo del recurso activo se lee
+   en una única etiqueta fija arriba del dock, no repetido por ítem. */
+   
+@media (max-width: 979px) {
+  body { padding-bottom: 92px; }
+
+  .unit-rail {
+    left: 50%; right: auto; top: auto; bottom: 12px;
+    transform: translateX(-50%);
+    width: calc(100vw - 24px);
+    max-width: 420px;
+    padding: 10px 14px;
+    padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+    border-radius: 20px;
+    background: rgba(4,12,56,.94);
+    /* Sin este borde, el dock se confunde con las secciones de tema
+       oscuro/cálido que tienen un tono casi idéntico de fondo detrás. */
+    border: 1px solid rgba(255,255,255,.18);
+    box-shadow: 0 16px 40px rgba(4,12,56,.45);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .unit-rail-current {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0 2px;
+  }
+  .unit-rail-current-icon {
+    flex: 0 0 auto;
+    width: 24px; height: 24px; border-radius: 50%;
+    background: rgba(255,255,255,.14);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10px; color: var(--white);
+  }
+  .unit-rail-current-title {
+    flex: 1 1 auto; min-width: 0;
+    font-family: var(--font-display); font-size: 13px; font-weight: 600;
+    color: var(--white);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .unit-rail-current-count {
+    flex: 0 0 auto;
+    font-family: var(--font-display); font-size: 11px;
+    color: rgba(255,255,255,.55);
+  }
+
+  .unit-rail-track {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-mask-image: linear-gradient(to right, transparent, black 14px, black calc(100% - 14px), transparent);
+    mask-image: linear-gradient(to right, transparent, black 14px, black calc(100% - 14px), transparent);
+  }
+  .unit-rail-track::-webkit-scrollbar { display: none; }
+  .unit-rail-line, .unit-rail-fill { display: none; }
+  .unit-rail-item { flex: 0 0 auto; padding: 2px; }
+  .unit-rail-dot { width: 30px; height: 30px; font-size: 12px; }
+  /* Icono-solamente acá: la etiqueta se lee arriba (una vez, para el
+     ítem activo), no repetida en cada punto. */
+  .unit-rail-label { display: none; }
+}
+
+/* ==========================================================================
+   HERO
+   ========================================================================== */
+.hero {
+  position: relative;
+  overflow: hidden;
+  background: var(--gradient-hero);
+  color: var(--white);
+  padding: clamp(64px, 10vw, 104px) clamp(20px, 5vw, 64px) clamp(96px, 11vw, 132px);
+  isolation: isolate;
+}
+
+.hero-dots {
+  position: absolute; inset: 0;
+  background-image: radial-gradient(rgba(255,255,255,.22) 1.5px, transparent 1.5px);
+  background-size: 22px 22px;
+  -webkit-mask-image: radial-gradient(circle at 78% 15%, black, transparent 62%);
+  mask-image: radial-gradient(circle at 78% 15%, black, transparent 62%);
+  opacity: .6;
+  pointer-events: none;
+}
+
+.hero-blob {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(8px);
+  opacity: .55;
+  pointer-events: none;
+  will-change: transform, translate;
+}
+.hero-blob--gold {
+  width: 400px; height: 400px; right: -60px; top: -140px;
+  background: radial-gradient(circle, rgba(203,181,78,.95), transparent 68%);
+  animation: incca-float 9s ease-in-out infinite;
+}
+.hero-blob--cyan {
+  width: 460px; height: 460px; left: -160px; bottom: -200px;
+  background: radial-gradient(circle, rgba(101,203,227,.85), transparent 68%);
+  animation: incca-float2 11s ease-in-out infinite;
+}
+.hero-blob--gold2 {
+  width: 200px; height: 200px; left: 42%; top: -80px;
+  background: radial-gradient(circle, rgba(203,181,78,.5), transparent 70%);
+  animation: incca-float 13s ease-in-out infinite reverse;
+  opacity: .4;
+}
+
+.hero-inner {
+  position: relative;
+  z-index: 1;
+  max-width: 1200px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.hero-back {
+  position: relative;
+  overflow: hidden;
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 8px 16px;
+  border-radius: var(--radius-sm);
+  background: rgba(255,255,255,.14);
+  border: 1px solid rgba(255,255,255,.3);
+  font-size: 13.5px; font-weight: 600;
+  transition: background .2s var(--ease-out), transform .2s var(--ease-out);
+  margin-bottom: 4px;
+  color: var(--white);
+}
+.hero-back:hover { background: rgba(255,255,255,.24); transform: translateX(-2px); color: var(--white); }
+
+.hero-eyebrow {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-family: var(--font-display);
+  font-size: 12.5px; font-weight: 700; letter-spacing: .16em;
+  color: var(--old-gold);
+  text-shadow: 0 1px 8px rgba(4,12,56,.4);
+}
+.hero-eyebrow::before {
+  content: ""; width: 22px; height: 2px; background: var(--old-gold); display: inline-block;
+}
+
+.hero-title {
+  font-size: clamp(2.3rem, 6vw, 4rem);
+  line-height: 1.04;
+  text-shadow: 0 2px 18px rgba(4,12,56,.5);
+}
+.hero-title-word {
+  display: inline-block;
+  margin-right: .28em;
+  animation: incca-rise .8s var(--ease-out) both;
+}
+
+.hero-subtitle {
+  font-size: clamp(1.05rem, 2.4vw, 1.4rem);
+  font-family: var(--font-display);
+  font-weight: 500;
+  color: var(--white);
+  text-shadow: 0 2px 12px rgba(4,12,56,.5);
+  animation: incca-rise .7s .3s var(--ease-out) both;
+}
+
+.hero-desc {
+  max-width: 62ch;
+  color: rgba(255,255,255,.92);
+  font-size: 15.5px;
+  text-shadow: 0 1px 8px rgba(4,12,56,.35);
+  animation: incca-rise .7s .38s var(--ease-out) both;
+}
+
+.hero-scrolltip {
+  position: absolute; left: 50%; bottom: 20px; transform: translateX(-50%);
+  z-index: 1;
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  color: rgba(255,255,255,.75);
+  font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
+}
+.hero-scrolltip i { animation: incca-bounce 1.8s ease-in-out infinite; }
+
+/* ==========================================================================
+   Franja de estadísticas — flotando sobre el borde inferior del hero
+   ========================================================================== */
+.unit-stats-wrap {
+  position: relative; z-index: 2;
+  max-width: 1000px;
+  margin: clamp(-64px, -6vw, -44px) auto 0;
+  padding: 0 clamp(20px, 5vw, 48px);
+}
+.unit-stats {
+  background: var(--white);
+  border-radius: 20px;
+  box-shadow: 0 24px 55px rgba(4,12,56,.22);
+  padding: 15px clamp(15px, 3vw, 15px);
+  display: flex; flex-wrap: wrap;
+  gap: clamp(18px, 4vw, 36px);
+  justify-content: space-between; align-items: center;
+}
+.unit-stat { display: flex; align-items: center; gap: 12px; }
+.unit-stat-icon {
+  flex: 0 0 auto;
+  width: 38px; height: 38px; border-radius: 10px;
+  background: var(--gradient-institutional);
+  color: var(--white);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px;
+}
+.unit-stat-text { display: flex; flex-direction: column; }
+.unit-stat-count { font-family: var(--font-display); font-weight: 800; font-size: 20px; color: var(--oxford-blue); font-variant-numeric: tabular-nums; }
+.unit-stat-label { font-size: 11.5px; color: var(--text-muted); font-weight: 600; }
+.unit-stat-eyebrow { font-size: 11px; color: var(--text-muted); font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
+.unit-stat-value { font-family: var(--font-display); font-weight: 700; font-size: 14px; color: var(--oxford-blue); }
+
+/* ==========================================================================
+   Estado vacío (unidad sin recursos)
+   ========================================================================== */
+.unit-empty {
+  position: relative; overflow: hidden;
+  display: flex; flex-direction: column; align-items: center; gap: 14px;
+  padding: 100px 20px;
+  color: rgba(255,255,255,.75);
+  text-align: center;
+  background: linear-gradient(165deg, var(--oxford-blue), var(--royal-blue));
+}
+.unit-empty i {
+  font-size: 32px; color: var(--white);
+  width: 64px; height: 64px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(255,255,255,.12);
+  animation: incca-pulse-ring 2.6s ease-out infinite;
+}
+.unit-empty p { margin: 0; font-size: 15px; }
+
+/* ==========================================================================
+   SECCIONES de recurso — full-bleed, tema por tipo
+   ========================================================================== */
+.unit-main { position: relative; display: flex; flex-direction: column; }
+
+.unit-section {
+  position: relative;
+  overflow: hidden;
+  padding: clamp(72px, 10vw, 116px) clamp(20px, 5vw, 64px) clamp(84px, 10vw, 128px);
+  scroll-margin-top: 80px;
+}
+
+/* Temas (aplicados vía data-tema en el propio <section>) */
+.unit-section[data-tema="light"]  { background: linear-gradient(160deg, #FFFFFF 0%, #EDF1F4 55%, var(--platinum) 100%); color: var(--oxford-blue); }
+.unit-section[data-tema="dark"]   { background: linear-gradient(165deg, var(--oxford-blue) 0%, var(--royal-blue) 100%); color: var(--white); }
+.unit-section[data-tema="paper"]  { background: linear-gradient(160deg, #EAF7FA 0%, #FFFFFF 55%, var(--platinum) 100%); color: var(--oxford-blue); }
+.unit-section[data-tema="warm"]   { background: linear-gradient(160deg, var(--bronze) 0%, #5b4322 45%, var(--oxford-blue) 100%); color: var(--white); }
+/* Colores SÓLIDOS a propósito (no rgba con alfa): el <body> de la página
+   es oscuro (var(--oxford-blue)) y un fondo semitransparente aquí se
+   mezclaría con lo que hay detrás, volviendo este tema "claro" en uno
+   oscuro y turbio — ya pasó y se veía roto. */
+.unit-section[data-tema="accent"] { background: linear-gradient(120deg, #FAF3DE 0%, #FFFFFF 55%, #EAF7FA 100%); color: var(--oxford-blue); }
+
+.unit-watermark {
+  position: absolute; top: 8px; right: clamp(12px, 4.5vw, 52px); z-index: 0;
+  font-family: var(--font-display); font-weight: 800;
+  font-size: clamp(6rem, 17vw, 10.5rem); line-height: 1;
+  opacity: 0;
+  transform: translateY(30px) scale(1.12);
+  transition: opacity 1s var(--ease-out), transform 1s var(--ease-out);
+  pointer-events: none; user-select: none;
+}
+.unit-section[data-tema="light"] .unit-watermark  { color: rgba(4,12,56,.055); }
+.unit-section[data-tema="dark"] .unit-watermark   { color: rgba(255,255,255,.06); }
+.unit-section[data-tema="paper"] .unit-watermark  { color: rgba(11,52,157,.06); }
+.unit-section[data-tema="warm"] .unit-watermark   { color: rgba(255,255,255,.07); }
+.unit-section[data-tema="accent"] .unit-watermark { color: rgba(4,12,56,.045); }
+.unit-section.is-visible .unit-watermark { opacity: 1; transform: translateY(0) scale(1); }
+
+.unit-inner { position: relative; z-index: 1; max-width: 900px; margin: 0 auto; }
+
+.unit-eyebrow-row {
+  display: flex; align-items: center; gap: 14px;
+  margin-bottom: 22px;
+  opacity: 0; transform: translateY(16px);
+  transition: opacity .7s var(--ease-out), transform .7s var(--ease-out);
+  transition-delay: 70ms;
+}
+.unit-section.is-visible .unit-eyebrow-row { opacity: 1; transform: translateY(0); }
+.unit-badge {
+  flex: 0 0 auto;
+  width: 40px; height: 40px; border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--white); font-size: 15px;
+  box-shadow: 0 10px 24px rgba(4,12,56,.18);
+}
+.unit-badge--texto { background: var(--gradient-gold); }
+.unit-badge--video-grid { background: linear-gradient(135deg, var(--light-cyan), var(--dodger-blue)); }
+.unit-badge--documento { background: linear-gradient(135deg, var(--royal-blue), var(--oxford-blue)); }
+.unit-badge--enlaces { background: linear-gradient(135deg, var(--bronze), var(--oxford-blue)); }
+.unit-badge--actividades { background: linear-gradient(135deg, var(--dodger-blue), var(--old-gold)); }
+.unit-badge--personalizado { background: linear-gradient(135deg, var(--light-cyan), var(--old-gold)); }
+.unit-eyebrow-text { font-family: var(--font-display); font-size: 12px; font-weight: 700; letter-spacing: .16em; }
+.unit-section[data-tema="light"] .unit-eyebrow-text  { color: var(--royal-blue); }
+.unit-section[data-tema="dark"] .unit-eyebrow-text   { color: var(--light-cyan); }
+.unit-section[data-tema="paper"] .unit-eyebrow-text  { color: var(--royal-blue); }
+.unit-section[data-tema="warm"] .unit-eyebrow-text   { color: var(--old-gold); }
+.unit-section[data-tema="accent"] .unit-eyebrow-text { color: var(--old-gold); }
+
+.unit-title {
+  margin: 0 0 20px;
+  font-size: clamp(1.6rem, 3.4vw, 2.5rem);
+  opacity: 0; transform: translateY(22px);
+  transition: opacity .7s var(--ease-out), transform .7s var(--ease-out);
+  transition-delay: 140ms;
+}
+.unit-section.is-visible .unit-title { opacity: 1; transform: translateY(0); }
+
+.unit-body {
+  opacity: 0; transform: translateY(18px);
+  transition: opacity .7s var(--ease-out), transform .7s var(--ease-out);
+  transition-delay: 220ms;
+}
+.unit-section.is-visible .unit-body { opacity: 1; transform: translateY(0); }
+
+/* ---------- tipo: texto ---------- */
+.unit-body p { font-size: 16px; line-height: 1.75; margin: 0 0 16px; max-width: 70ch; }
+.unit-section[data-tema="light"] .unit-body p, .unit-section[data-tema="paper"] .unit-body p { color: var(--text-body); }
+.unit-section[data-tema="dark"] .unit-body p, .unit-section[data-tema="warm"] .unit-body p { color: rgba(255,255,255,.85); }
+.unit-section[data-tema="accent"] .unit-body p { color: var(--text-body); }
+
+.unit-lessons { position: relative; margin-top: 30px; }
+.unit-lessons-line {
+  position: absolute; left: 19px; top: 8px; bottom: 8px; width: 2px;
+  background: linear-gradient(to bottom, var(--royal-blue), transparent);
+}
+.unit-lesson { position: relative; display: flex; gap: 16px; margin-bottom: 14px; align-items: flex-start; }
+.unit-lesson-num {
+  position: relative; z-index: 1; flex: 0 0 auto;
+  width: 40px; height: 40px; border-radius: 50%;
+  background: var(--white); color: var(--royal-blue);
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-display); font-weight: 700; font-size: 13px;
+  box-shadow: 0 4px 10px rgba(4,12,56,.1);
+  transition: all .3s var(--ease-bounce);
+}
+.unit-lesson.is-open .unit-lesson-num {
+  background: linear-gradient(135deg, var(--old-gold), var(--bronze));
+  color: var(--oxford-blue);
+  box-shadow: 0 8px 18px rgba(203,181,78,.4);
+}
+.unit-lesson-card {
+  flex: 1 1 auto; min-width: 0;
+  background: var(--white);
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 4px 12px rgba(4,12,56,.06);
+  transition: box-shadow .3s var(--ease-out);
+}
+.unit-lesson.is-open .unit-lesson-card { box-shadow: 0 10px 24px rgba(4,12,56,.12); }
+.unit-lesson-toggle {
+  width: 100%; display: flex; align-items: center; gap: 12px;
+  padding: 13px 18px; text-align: left;
+}
+.unit-lesson-toggle span.label { flex: 1 1 auto; font-weight: 600; font-size: 14.5px; color: var(--oxford-blue); }
+.unit-lesson-toggle i { color: var(--royal-blue); transition: transform .3s var(--ease-bounce); flex: 0 0 auto; }
+.unit-lesson.is-open .unit-lesson-toggle i { transform: rotate(180deg); color: var(--old-gold); }
+.unit-lesson-panel { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .35s var(--ease-out); }
+.unit-lesson.is-open .unit-lesson-panel { grid-template-rows: 1fr; }
+.unit-lesson-panel-inner { overflow: hidden; }
+.unit-lesson-panel p { padding: 0 18px 16px; font-size: 14px; color: var(--text-muted); margin: 0; }
+
+/* ---------- tipo: video-grid / video ---------- */
+.unit-videogrid { display: grid; gap: 20px; }
+.unit-video {
+  display: flex; flex-direction: column; gap: 12px;
+  text-align: left; position: relative;
+}
+.unit-video-badge {
+  position: absolute; top: 14px; left: 14px; z-index: 1;
+  font-family: var(--font-display); font-size: 10.5px; font-weight: 700; letter-spacing: .08em;
+  color: var(--oxford-blue); background: var(--old-gold);
+  padding: 5px 10px; border-radius: 999px;
+}
+.unit-video-thumb {
+  position: relative; aspect-ratio: 16 / 10; border-radius: 18px;
+  background-size: cover; background-position: center;
+  display: flex; align-items: center; justify-content: center;
+  overflow: hidden;
+  box-shadow: 0 20px 45px rgba(0,0,0,.35);
+  transition: transform .3s var(--ease-out), box-shadow .3s var(--ease-out);
+}
+.unit-video:hover .unit-video-thumb, .unit-video:focus-visible .unit-video-thumb { transform: scale(1.03) translateY(-3px); box-shadow: 0 26px 55px rgba(101,203,227,.35); }
+.unit-video-play {
+  width: 58px; height: 58px; border-radius: 50%;
+  background: rgba(4,12,56,.5); border: 2px solid rgba(255,255,255,.85);
+  display: flex; align-items: center; justify-content: center;
+  color: var(--white); font-size: 17px;
+  animation: incca-pulse-ring 2.4s ease-out infinite;
+}
+.unit-video-caption { font-size: 14px; font-weight: 600; padding: 0 2px; }
+.unit-section[data-tema="dark"] .unit-video-caption { color: rgba(255,255,255,.85); }
+
+/* ---------- tipo: documento ---------- */
+.unit-doc-title { margin: 0 0 16px; font-size: clamp(1rem, 2vw, 1.15rem); }
+.unit-doc-title a { border-bottom: 2px solid transparent; }
+.unit-doc-title a:hover { border-color: currentColor; }
+.unit-section[data-tema="paper"] .unit-doc-title a, .unit-section[data-tema="light"] .unit-doc-title a { color: var(--royal-blue); }
+
+.unit-doc-stack { position: relative; padding: 18px 6px 14px 0; }
+.unit-doc-stack::before {
+  content: "";
+  position: absolute; inset: 26px -4px -4px 12px;
+  background: var(--white); border-radius: 18px;
+  box-shadow: 0 14px 30px rgba(4,12,56,.1);
+  transform: rotate(-1deg); z-index: 0;
+}
+.unit-doc-frame {
+  position: relative; z-index: 1;
+  width: 100%; aspect-ratio: 4 / 3; max-height: 70vh;
+  border-radius: 18px; overflow: hidden;
+  background: var(--platinum);
+  box-shadow: 0 24px 50px rgba(4,12,56,.18);
+}
+.unit-doc-frame iframe { width: 100%; height: 100%; border: 0; display: block; }
+.unit-doc-frame-empty {
+  height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+  color: var(--text-muted);
+  background: linear-gradient(160deg, var(--platinum), var(--white));
+}
+.unit-doc-frame-empty i {
+  font-size: 22px; color: var(--white);
+  width: 48px; height: 48px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--gradient-institutional);
+}
+.unit-doc-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+.unit-btn-solid, .unit-btn-outline, .unit-btn-flat {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 9px 16px; border-radius: var(--radius-sm);
+  font-size: 13px; font-weight: 700;
+  transition: transform .2s var(--ease-out), box-shadow .2s var(--ease-out);
+}
+.unit-btn-solid { background: var(--gradient-institutional); color: var(--white); }
+.unit-btn-outline { border: 1.5px solid var(--royal-blue); color: var(--royal-blue); }
+.unit-btn-flat { background: var(--platinum); color: var(--text-body); }
+.unit-btn-solid:hover, .unit-btn-outline:hover, .unit-btn-flat:hover { transform: translateY(-2px); box-shadow: var(--shadow-soft); }
+
+/* ---------- tipo: enlaces ---------- */
+.unit-links { display: flex; flex-direction: column; }
+.unit-link-item { border-bottom: 1px solid rgba(255,255,255,.16); }
+.unit-link-item a {
+  display: flex; align-items: center; gap: 18px;
+  padding: 18px 6px;
+  color: var(--white);
+  transition: transform .25s var(--ease-out);
+}
+.unit-link-item a:hover { transform: translateX(6px); color: var(--white); }
+.unit-link-index { font-family: var(--font-display); font-size: 13px; font-weight: 700; color: rgba(255,255,255,.5); width: 26px; flex: 0 0 auto; }
+.unit-link-text { flex: 1 1 auto; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.unit-link-title { font-size: 14.5px; font-weight: 600; color: var(--white); }
+.unit-link-source { font-size: 11px; font-weight: 700; letter-spacing: .06em; color: var(--old-gold); text-transform: uppercase; }
+.unit-link-arrow { flex: 0 0 auto; color: rgba(255,255,255,.6); }
+
+/* ---------- tipo: actividades ---------- */
+/* Filas numeradas y compactas por defecto (mismo espíritu que la lista de
+   "enlaces" y el acordeón de lecciones de "texto") — con muchas
+   actividades (5, 10, 20...) esto se mantiene escaneable: cada fila es
+   angosta, el botón de "ir a la actividad" siempre está a mano sin
+   necesidad de abrir nada, y la descripción (si hay) se expande solo si
+   el usuario quiere leerla. Una pila de tarjetas grandes idénticas no
+   escala bien a esa cantidad — esto sí. */
+.unit-activities { position: relative; display: flex; flex-direction: column; gap: 14px; }
+.unit-activities-line {
+  position: absolute; left: 19px; top: 8px; bottom: 8px; width: 2px;
+  background: linear-gradient(to bottom, var(--old-gold), transparent);
+}
+.unit-activity { position: relative; display: flex; gap: 16px; align-items: flex-start; }
+.unit-activity-index {
+  position: relative; z-index: 1; flex: 0 0 auto;
+  width: 40px; height: 40px; border-radius: 50%;
+  background: var(--white); color: var(--royal-blue);
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-display); font-weight: 700; font-size: 13px;
+  box-shadow: 0 4px 10px rgba(4,12,56,.1);
+  transition: all .3s var(--ease-bounce);
+}
+.unit-activity.is-open .unit-activity-index {
+  background: linear-gradient(135deg, var(--old-gold), var(--bronze));
+  color: var(--oxford-blue);
+  box-shadow: 0 8px 18px rgba(203,181,78,.4);
+}
+.unit-activity-card {
+  flex: 1 1 auto; min-width: 0;
+  background: var(--white);
+  border-radius: 14px;
+  box-shadow: 0 4px 12px rgba(4,12,56,.06);
+  overflow: hidden;
+  transition: box-shadow .3s var(--ease-out);
+}
+.unit-activity.is-open .unit-activity-card { box-shadow: 0 10px 24px rgba(4,12,56,.12); }
+.unit-activity-row { display: flex; align-items: stretch; }
+.unit-activity-toggle {
+  flex: 1 1 auto; min-width: 0;
+  display: flex; align-items: center; gap: 12px;
+  padding: 13px 6px 13px 18px;
+  text-align: left;
+}
+.unit-activity-toggle:disabled { cursor: default; }
+.unit-activity-nombre { flex: 1 1 auto; min-width: 0; font-weight: 600; font-size: 15px; color: var(--oxford-blue); }
+.unit-activity-caret { flex: 0 0 auto; color: var(--text-muted); transition: transform .3s var(--ease-bounce); }
+.unit-activity.is-open .unit-activity-caret { transform: rotate(180deg); color: var(--old-gold); }
+.unit-activity-go {
+  flex: 0 0 auto;
+  width: 40px; margin: 8px 10px 8px 4px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: var(--radius-sm);
+  background: var(--gradient-institutional); color: var(--white);
+  font-size: 13px;
+  transition: transform .2s var(--ease-out), box-shadow .2s var(--ease-out);
+}
+.unit-activity-go:hover { transform: translateY(-2px) scale(1.05); box-shadow: var(--shadow-soft); color: var(--white); }
+.unit-activity-panel { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .35s var(--ease-out); }
+.unit-activity.is-open .unit-activity-panel { grid-template-rows: 1fr; }
+.unit-activity-panel-inner { overflow: hidden; }
+.unit-activity-desc { padding: 0 18px 16px 18px; font-size: 14.5px; line-height: 1.65; color: var(--text-body); }
+.unit-activity-desc p + p { margin-top: 10px; }
+.unit-activity-preview-wrap { padding: 0 18px 16px 18px; }
+
+/* Una sola actividad: nada que "escanear" — se agranda, se destaca y
+   arranca abierta (no tiene sentido pedirle un clic extra al usuario
+   para ver el único contenido de la sección). */
+.unit-activities--single .unit-activity-index { width: 52px; height: 52px; font-size: 18px; }
+.unit-activities--single .unit-activity-nombre { font-size: clamp(1.1rem, 2.2vw, 1.35rem); }
+.unit-activities--single .unit-activity-toggle { padding: 18px 6px 18px 22px; }
+.unit-activities--single .unit-activity-go { width: 48px; margin: 12px 14px 12px 4px; font-size: 15px; }
+.unit-activities--single .unit-activity-desc,
+.unit-activities--single .unit-activity-preview-wrap { padding: 0 22px 22px 22px; font-size: 15.5px; max-width: 68ch; }
+
+.unit-empty-inline { font-size: 14px; font-style: italic; opacity: .75; }
+
+/* ---------- tipo: personalizado (HTML/iframe de confianza) ---------- */
+.unit-custom-html { font-size: 15.5px; line-height: 1.75; }
+.unit-custom-html p { margin: 0 0 16px; max-width: 70ch; }
+.unit-custom-html p:last-child { margin-bottom: 0; }
+.unit-custom-html ul, .unit-custom-html ol { margin: 0 0 16px; padding-left: 22px; max-width: 70ch; }
+.unit-custom-html li { margin-bottom: 6px; }
+.unit-custom-html a { color: var(--royal-blue); text-decoration: underline; }
+.unit-custom-html img { max-width: 100%; border-radius: var(--radius-sm); margin: 10px 0; }
+.unit-custom-html h1, .unit-custom-html h2, .unit-custom-html h3, .unit-custom-html h4 {
+  margin: 0 0 14px; font-family: var(--font-display);
+}
+
+/* ==========================================================================
+   Modal de pantalla completa
+   ========================================================================== */
+.media-modal-overlay {
+  position: fixed; inset: 0; z-index: 400;
+  background: rgba(4,12,56,.88); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  display: flex; align-items: center; justify-content: center; padding: 4vh 3vw;
+  opacity: 0; pointer-events: none; transition: opacity .3s var(--ease-out);
+}
+.media-modal-overlay.is-open { opacity: 1; pointer-events: auto; }
+.media-modal {
+  width: min(1100px, 100%); height: min(86vh, 720px); max-height: 92vh;
+  background: var(--white); border-radius: 28px; box-shadow: 0 30px 70px rgba(4,12,56,.35);
+  padding: 22px 24px; display: flex; flex-direction: column; gap: 12px; position: relative;
+  transform: scale(.94); transition: transform .3s var(--ease-out);
+}
+.media-modal-overlay.is-open .media-modal { transform: scale(1); }
+.media-modal-close {
+  position: absolute; top: 16px; right: 16px; width: 36px; height: 36px; border-radius: 50%;
+  background: var(--oxford-blue); color: var(--white);
+  border: 2px solid var(--old-gold);
+  display: flex; align-items: center; justify-content: center; font-size: 13px; z-index: 1;
+  transition: background .2s;
+}
+.media-modal-close:hover { background: var(--royal-blue); }
+.media-modal-title { font-size: clamp(1.05rem, 2.2vw, 1.4rem); font-weight: 700; color: var(--oxford-blue); padding-right: 44px; }
+.media-modal-body { flex: 1; min-height: 0; border-radius: 12px; overflow: hidden; background: var(--platinum); }
+.media-modal-body iframe { width: 100%; height: 100%; border: 0; display: block; }
+.media-modal-overlay.is-open .media-modal-title { animation: incca-rise .4s .08s var(--ease-out) both; }
+.media-modal-overlay.is-open .media-modal-body { animation: incca-rise .45s .16s var(--ease-out) both; }
+
+/* Contenido HTML de una actividad (autoría Moodle) mostrado dentro del
+   modal — con su propio scroll y tipografía legible, ya que .media-modal-body
+   está pensado para un iframe que llena el 100% sin padding propio. */
+.modal-html-content {
+  /* min-height, no height: contenido real de Moodle (como una tabla con
+     "height:100%" y filas en %, pensada para el alto completo de una
+     página, no el de un modal) necesita poder CRECER más allá del
+     100% del modal para no recortarse — con "height:100%" fijo, esa
+     tabla queda encerrada en el mismo 100% y su contenido se corta en
+     vez de habilitar el scroll de este contenedor. */
+  min-height: 100%;
+  overflow-y: auto;
+  padding: 22px 26px;
+  background: var(--white);
+  color: var(--text-body);
+  font-size: 15px;
+  line-height: 1.7;
+}
+.modal-html-content p { margin: 0 0 14px; }
+.modal-html-content p:last-child { margin-bottom: 0; }
+.modal-html-content ul, .modal-html-content ol { margin: 0 0 14px; padding-left: 22px; }
+.modal-html-content li { margin-bottom: 6px; }
+.modal-html-content a { color: var(--royal-blue); text-decoration: underline; }
+.modal-html-content img { max-width: 100%; border-radius: var(--radius-sm); margin: 10px 0; }
+.modal-html-content h1, .modal-html-content h2, .modal-html-content h3, .modal-html-content h4 {
+  margin: 0 0 12px; color: var(--oxford-blue); font-family: var(--font-display);
+}
+.modal-html-content strong { color: var(--oxford-blue); }
+
+/* Botón flotante DENTRO del modal — para una actividad con descripción
+   HTML, ir a hacerla no debería costar cerrar el popup primero (volver a
+   abrirlo si te arrepentiste es un reproceso). Flota sobre el HTML
+   pegado con un z-index alto a propósito: ese HTML es contenido de
+   terceros (Moodle) y puede traer su propio z-index/posicionamiento, y
+   este botón siempre debe ganar. El mismo link también se ve como botón
+   en la fila de la actividad (fuera del modal) — están los dos a la vez. */
+.media-modal-go {
+  position: absolute;
+  right: 26px; bottom: 24px;
+  z-index: 50;
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 12px 22px;
+  border-radius: 999px;
+  background: var(--gradient-institutional);
+  color: var(--white);
+  font-weight: 700; font-size: 14px;
+  box-shadow: 0 14px 30px rgba(4,12,56,.4);
+  transition: transform .2s var(--ease-out), box-shadow .2s var(--ease-out);
+}
+.media-modal-go:hover { transform: translateY(-2px) scale(1.03); box-shadow: 0 18px 36px rgba(4,12,56,.48); color: var(--white); }
+
+@media (max-width: 620px) {
+  .media-modal { padding: 16px; height: min(88vh, 640px); }
+  .media-modal-go { right: 16px; bottom: 16px; padding: 10px 18px; font-size: 13px; }
+}

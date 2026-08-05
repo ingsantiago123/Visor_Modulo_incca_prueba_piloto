@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Visor de unidad — U.INCCA</title>
+<meta name="description" content="Visor interactivo de los recursos de una unidad/semana de curso de la Universidad INCCA de Colombia: lecturas, videos, documentos y enlaces — contenido parametrizado por unidad.">
+<meta name="robots" content="noindex, follow">
+<meta name="theme-color" content="#040C38">
+<meta name="color-scheme" content="light">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="preconnect" href="https://cdnjs.cloudflare.com">
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;600;700&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer">
+
+<link rel="stylesheet" href="./assets/css/styles.css">
+</head>
+<body>
+
+<noscript>
+  <div style="position:fixed;inset:0;background:#040C38;color:#fff;display:flex;align-items:center;justify-content:center;text-align:center;padding:8vw;font-family:Roboto,Arial,sans-serif;z-index:9999">
+    <p>Este contenido interactivo necesita JavaScript habilitado en tu navegador para funcionar. Por favor actívalo y recarga la página.</p>
+  </div>
+</noscript>
+
+<div class="scroll-progress" id="scrollProgress" aria-hidden="true"></div>
+
+<!-- Riel de navegación: vertical y flotante a la izquierda en escritorio;
+     el mismo componente se convierte en un dock horizontal flotante abajo
+     en pantallas angostas (no desaparece, se adapta) — ahí los puntos son
+     solo ícono (compactos, sin importar cuántos recursos haya) y el
+     nombre completo del recurso activo se lee en la etiqueta de arriba. -->
+<nav class="unit-rail" id="unitRail" aria-label="Índice de recursos de la unidad" hidden>
+  <div class="unit-rail-current" id="unitRailCurrent" aria-hidden="true">
+    <span class="unit-rail-current-icon" id="unitRailCurrentIcon"><i class="fa-solid fa-shapes"></i></span>
+    <span class="unit-rail-current-title" id="unitRailCurrentTitle"></span>
+    <span class="unit-rail-current-count" id="unitRailCurrentCount"></span>
+  </div>
+  <div class="unit-rail-track" id="unitRailTrack"></div>
+</nav>
+
+<header class="hero" id="hero">
+  <div class="hero-dots" aria-hidden="true"></div>
+  <div class="hero-blob hero-blob--gold" aria-hidden="true"></div>
+  <div class="hero-blob hero-blob--cyan" aria-hidden="true"></div>
+  <div class="hero-blob hero-blob--gold2" aria-hidden="true"></div>
+  <div class="hero-inner">
+    <a class="hero-back" id="heroBack" href="#" target="_blank" rel="noopener" hidden>
+      <i class="fa-solid fa-arrow-left" aria-hidden="true"></i> Volver a las unidades
+    </a>
+    <span class="hero-eyebrow">UNIDAD</span>
+    <h1 class="hero-title" id="heroUnidad">Nombre de la unidad</h1>
+    <p class="hero-subtitle" id="heroTitulo" hidden></p>
+    <p class="hero-desc" id="heroDescripcion"></p>
+  </div>
+  <div class="hero-scrolltip" id="heroScrollTip" hidden>
+    <span>Desliza para comenzar</span>
+    <i class="fa-solid fa-chevron-down" aria-hidden="true"></i>
+  </div>
+</header>
+
+<div class="unit-stats-wrap" id="unitStatsWrap" hidden>
+  <div class="unit-stats" id="unitStats"></div>
+</div>
+
+<div class="unit-empty" id="unitEmpty" hidden>
+  <i class="fa-solid fa-box-open" aria-hidden="true"></i>
+  <p>Esta unidad todavía no tiene recursos.</p>
+</div>
+
+<main class="unit-main" id="unitMain"></main>
+
+<div class="media-modal-overlay" id="mediaModalOverlay">
+  <div class="media-modal" role="dialog" aria-modal="true" aria-labelledby="mediaModalTitle">
+    <button class="media-modal-close" id="mediaModalClose" type="button" aria-label="Cerrar">
+      <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+    </button>
+    <h3 class="media-modal-title" id="mediaModalTitle"></h3>
+    <div class="media-modal-body" id="mediaModalBody"></div>
+    <a class="media-modal-go" id="mediaModalGo" href="#" target="_blank" rel="noopener" hidden>
+      <i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> Ir a la actividad
+    </a>
+  </div>
+</div>
+
+<script src="./assets/js/main.js"></script>
+</body>
+</html>
