@@ -250,11 +250,51 @@
 
     $("#heroDescripcion").textContent = datos.descripcion;
 
-    const back = $("#heroBack");
-    back.hidden = !datos.volver_url;
-    if (datos.volver_url) back.href = datos.volver_url;
+    initHeroBack(datos);
 
     $("#heroScrollTip").hidden = !hayRecursos;
+  }
+
+  /**
+   * Botón "Volver a las unidades": si este visor está embebido dentro de un
+   * iframe (típicamente Moodle, con el mosaico ya abierto), le avisa al
+   * padre por postMessage para que cierre ese mosaico y vuelva a la vista
+   * principal, en vez de navegar a una URL nueva o abrir pestaña — así no
+   * se pierde el contexto visual. Si el padre no contesta en 400ms (visor
+   * abierto suelto sin Moodle, o Moodle no tiene el listener activo) cae al
+   * comportamiento normal: navega al href como siempre. Nunca se queda un
+   * botón que no hace nada.
+   */
+  function initHeroBack(datos) {
+    const back = $("#heroBack");
+    back.hidden = !datos.volver_url;
+    if (!datos.volver_url) return;
+    back.href = datos.volver_url;
+
+    const estaEmbebido = window.parent && window.parent !== window;
+    if (!estaEmbebido) return;
+
+    back.addEventListener("click", function (event) {
+      event.preventDefault();
+
+      let resuelto = false;
+      const onMensaje = function (ev) {
+        const data = ev.data;
+        if (!data || data.source !== "visorincca" || data.type !== "unidades-cerrado") return;
+        resuelto = true;
+        window.removeEventListener("message", onMensaje);
+      };
+      window.addEventListener("message", onMensaje);
+
+      window.parent.postMessage({ source: "visorincca", type: "volver-unidades" }, "*");
+
+      setTimeout(function () {
+        if (!resuelto) {
+          window.removeEventListener("message", onMensaje);
+          window.location.href = datos.volver_url;
+        }
+      }, 400);
+    });
   }
 
   /* ---------------------------------------------------------------------

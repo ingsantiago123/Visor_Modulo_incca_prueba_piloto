@@ -155,11 +155,43 @@ function leerDatosDesdeWindowName() {
 | `titulo` | string | `""` → el subtítulo del hero queda oculto (`hidden`), no se muestra un placeholder ahí | Subtítulo del hero (`#heroTitulo`), justo debajo de `unidad`. |
 | `descripcion` | string | `"Aquí aparecerá la descripción de esta unidad."` | Párrafo del hero (`#heroDescripcion`). |
 | `duracion_estimada` | string | `""` → esa píldora simplemente no aparece en la franja de estadísticas (no se cuenta como stat "en cero") | Primera píldora de `#unitStats`, con ícono de reloj. |
-| `volver_url` | string (URL) | `""` → el botón "Volver a las unidades" del hero queda oculto | `href` del botón `#heroBack` (`target="_blank"`). |
+| `volver_url` | string (URL) | `""` → el botón "Volver a las unidades" del hero queda oculto | `href` del botón `#heroBack`. Ver "Puente con Moodle" justo abajo — el clic no siempre navega ahí directo. |
 | `recursos` | array de objetos | `[]` → estado vacío ilustrado (`#unitEmpty`: "Esta unidad todavía no tiene recursos."), riel de navegación oculto | Cada elemento se procesa con `mergeRecurso()` — ver abajo. |
 
 Cualquier clave que no esté en esta lista se ignora silenciosamente (no
 rompe nada, simplemente no se usa).
+
+### Puente con Moodle: el botón "Volver a las unidades" (opcional, vía `volver_url`)
+
+Este visor no vive en su propia pestaña: Moodle lo incrusta dentro de un
+panel/mosaico ya abierto (formato de curso "Mosaicos" +
+`local_visorincca`). Si el clic en "Volver a las unidades" simplemente
+navegara a `volver_url`, el mosaico quedaría abierto de fondo y el
+usuario perdería el contexto visual. Por eso `initHeroBack()` intenta
+primero avisarle al padre por `postMessage` para que sea **Moodle**
+quien cierre el mosaico con su propia animación nativa — sin recargar ni
+abrir pestaña — y solo navega a `volver_url` como **fallback**:
+
+1. Si el visor NO está embebido (`window.parent === window` — se abrió
+   suelto, p. ej. en pruebas), el botón es un link normal: navega a
+   `volver_url` sin más.
+2. Si SÍ está embebido, el clic no navega de una: manda
+   `{ source: "visorincca", type: "volver-unidades" }` a
+   `window.parent` por `postMessage` con target-origin `"*"` (comodín —
+   cada instalación de Moodle vive en un dominio distinto, así que el
+   visor no puede ni debe fijar uno solo; el mensaje no lleva datos
+   sensibles, y la validación de qué acepta la hace Moodle del lado de
+   adentro, no este visor).
+3. Si el padre confirma a tiempo con
+   `{ source: "visorincca", type: "unidades-cerrado" }` (dentro de
+   400 ms), ahí termina — Moodle ya se encargó de cerrar el mosaico.
+4. Si no confirma a tiempo (Moodle no tiene el listener activo, o el
+   padre no es Moodle) → cae al comportamiento normal: navega a
+   `volver_url`. Nunca se queda un botón que no hace nada.
+
+Mismo espíritu que el puente `sectionid` del visor de curso principal:
+best-effort con fallback garantizado, sin que este visor necesite saber
+en qué dominio ni bajo qué plugin está corriendo Moodle.
 
 ### Reglas comunes a TODOS los recursos de `recursos[]`
 
