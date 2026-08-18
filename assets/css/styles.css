@@ -48,6 +48,28 @@ html, body {
   background: var(--oxford-blue);
 }
 
+/* Scroll propio, delgado, con el degradado institucional — el visor vive
+   embebido en un panel de Moodle que ya tiene su propio scroll de página,
+   así que la barra gris nativa del sistema, pegada al borde del iframe,
+   desentona como un "doble scroll" que no se ve parte del diseño. Se
+   aplica sin scope (no solo a html/body) para que cualquier contenedor
+   con scroll propio — el modal de actividades, un documento largo — use
+   el mismo estilo, nunca la barra del sistema operativo. */
+html { scrollbar-width: thin; scrollbar-color: var(--old-gold) transparent; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background-color: var(--old-gold);
+  background-image: linear-gradient(180deg, var(--old-gold), var(--light-cyan));
+  background-clip: padding-box;
+  border: 2px solid transparent;
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-image: linear-gradient(180deg, var(--light-cyan), var(--old-gold));
+}
+::-webkit-scrollbar-corner { background: transparent; }
+
 body {
   font-family: var(--font-base);
   font-size: 16px;
@@ -487,6 +509,7 @@ button { font-family: inherit; cursor: pointer; background: none; border: none; 
 .unit-badge--video-grid { background: linear-gradient(135deg, var(--light-cyan), var(--dodger-blue)); }
 .unit-badge--documento { background: linear-gradient(135deg, var(--royal-blue), var(--oxford-blue)); }
 .unit-badge--enlaces { background: linear-gradient(135deg, var(--bronze), var(--oxford-blue)); }
+.unit-badge--lecturas { background: linear-gradient(135deg, var(--royal-blue), var(--old-gold)); }
 .unit-badge--actividades { background: linear-gradient(135deg, var(--dodger-blue), var(--old-gold)); }
 .unit-badge--personalizado { background: linear-gradient(135deg, var(--light-cyan), var(--old-gold)); }
 .unit-eyebrow-text { font-family: var(--font-display); font-size: 12px; font-weight: 700; letter-spacing: .16em; }
@@ -650,6 +673,125 @@ button { font-family: inherit; cursor: pointer; background: none; border: none; 
 .unit-link-title { font-size: 14.5px; font-weight: 600; color: var(--white); }
 .unit-link-source { font-size: 11px; font-weight: 700; letter-spacing: .06em; color: var(--old-gold); text-transform: uppercase; }
 .unit-link-arrow { flex: 0 0 auto; color: rgba(255,255,255,.6); }
+
+/* ---------- tipo: lecturas ----------
+   Dos plantillas, una por variante (un recurso usa UNA sola, nunca las
+   mezcla): "apoyo" es la grilla de tarjetas de abajo (protagonismo para
+   pocos ítems con audiolibro); "complementarias" es la lista compacta de
+   filas que sigue (pensada para escalar a muchas referencias sin ocupar
+   tanto alto). Cada ÍTEM decide su propio comportamiento de apertura vía
+   "embebido" (ver lecturaCardHtml()/lecturaRowHtml() en main.js). */
+
+/* -- variante "apoyo": grilla de "libros" que se abren al pasar el mouse -- */
+.unit-readings-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 22px; }
+.unit-reading-card {
+  position: relative;
+  display: flex; flex-direction: column; gap: 14px;
+  background: var(--white);
+  border-radius: 20px;
+  padding: 18px 18px 20px;
+  box-shadow: 0 10px 26px rgba(4,12,56,.08);
+  transition: transform .35s var(--ease-out), box-shadow .35s var(--ease-out);
+  opacity: 0;
+}
+/* La entrada escalonada se dispara junto con el resto de la sección
+   (.unit-section.is-visible, ver el IntersectionObserver en main.js),
+   no apenas carga la página — y respeta reduced-motion como el resto. */
+.unit-section.is-visible .unit-reading-card { animation: unit-reading-card-in .6s var(--ease-out) forwards; }
+.unit-reading-card:nth-child(1) { animation-delay: 0s; }
+.unit-reading-card:nth-child(2) { animation-delay: .08s; }
+.unit-reading-card:nth-child(3) { animation-delay: .16s; }
+.unit-reading-card:nth-child(4) { animation-delay: .24s; }
+.unit-reading-card:nth-child(n+5) { animation-delay: .32s; }
+@keyframes unit-reading-card-in { from { opacity: 0; transform: translateY(22px); } to { opacity: 1; transform: translateY(0); } }
+.unit-reading-card:hover { transform: translateY(-6px); box-shadow: 0 24px 46px rgba(4,12,56,.16); }
+.unit-reading-card-open { flex: 1 1 auto; display: flex; flex-direction: column; gap: 14px; text-align: left; color: var(--oxford-blue); }
+
+/* Portada tipo libro: dos hojas sueltas y rotadas detrás simulan una
+   pila de papel; la tapa de encima gira sobre su lomo (rotateY, con
+   "perspective" en el contenedor envolvente para que se vea 3D de
+   verdad) al pasar el mouse por CUALQUIER parte de la tarjeta — el
+   mismo gesto físico de abrir un libro — revelando la hoja con líneas
+   de texto simuladas que estaba debajo. */
+.unit-reading-card-cover-wrap { position: relative; display: block; width: 100%; aspect-ratio: 16 / 10; border-radius: 14px; perspective: 1300px; }
+.unit-reading-card-stack { position: absolute; border-radius: 14px; background: #dbe6f7; }
+.unit-reading-card-stack--1 { right: -5px; bottom: -6px; width: 94%; height: 94%; transform: rotate(2.5deg); }
+.unit-reading-card-stack--2 { right: -2px; bottom: -3px; width: 97%; height: 97%; background: #c3d6f2; transform: rotate(1.3deg); }
+.unit-reading-card-page {
+  position: absolute; inset: 0; border-radius: 14px;
+  background: linear-gradient(135deg, #fff, #eef2fa);
+  box-shadow: inset 0 0 0 1px rgba(11,52,157,.06);
+  display: flex; flex-direction: column; justify-content: center; gap: 7px;
+  padding: 0 18px;
+}
+.unit-reading-card-page-line { height: 6px; border-radius: 4px; background: #dbe3f3; }
+.unit-reading-card-cover {
+  position: absolute; inset: 0; border-radius: 14px; overflow: hidden;
+  background: linear-gradient(150deg, var(--royal-blue), var(--dodger-blue));
+  box-shadow: 0 10px 24px rgba(11,52,157,.3);
+  transform-origin: left center; backface-visibility: hidden;
+  transition: transform .65s var(--ease-out);
+  display: flex; align-items: center; justify-content: center;
+}
+.unit-reading-card:hover .unit-reading-card-cover { transform: rotateY(-122deg); }
+.unit-reading-card-cover::before {
+  content: ""; position: absolute; inset: 0 auto 0 0; width: 14%;
+  background: linear-gradient(to right, rgba(0,0,0,.35), transparent);
+}
+.unit-reading-card-pdf-badge {
+  position: absolute; top: 10px; left: 10px;
+  display: inline-flex; align-items: center; gap: 5px;
+  background: rgba(4,12,56,.35); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+  padding: 4px 9px; border-radius: 999px;
+  font-size: 9.5px; font-weight: 700; letter-spacing: .07em; color: var(--white);
+}
+.unit-reading-card-cover i { position: relative; font-size: 30px; color: rgba(255,255,255,.95); filter: drop-shadow(0 6px 12px rgba(0,0,0,.25)); }
+
+.unit-reading-card-title { font-size: 15px; font-weight: 700; line-height: 1.35; }
+.unit-reading-card-source { font-size: 10.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--royal-blue); margin-top: -6px; }
+.unit-reading-card-cta { margin-top: auto; padding-top: 4px; display: inline-flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 700; color: var(--dodger-blue); }
+.unit-reading-card-cta i { font-size: 10px; transition: transform .25s var(--ease-out); }
+.unit-reading-card:hover .unit-reading-card-cta i { transform: translateX(3px); }
+.unit-reading-card-audio {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  font-size: 12.5px; font-weight: 700; color: var(--white);
+  background: var(--gradient-institutional);
+  padding: 10px 14px; border-radius: 999px;
+  transition: transform .2s var(--ease-out), box-shadow .2s var(--ease-out);
+}
+.unit-reading-card-audio:hover { transform: scale(1.03); box-shadow: var(--shadow-soft); }
+
+/* -- variante "complementarias": lista -- */
+.unit-readings { display: flex; flex-direction: column; }
+.unit-reading-item {
+  display: flex; align-items: center; gap: 16px;
+  padding: 16px 6px;
+  border-bottom: 1px solid rgba(255,255,255,.16);
+}
+.unit-reading-icon {
+  flex: 0 0 auto; width: 38px; height: 38px; border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px; color: var(--white);
+  background: linear-gradient(135deg, var(--old-gold), var(--bronze));
+}
+.unit-reading-open {
+  flex: 1 1 auto; min-width: 0; text-align: left; color: var(--white);
+  display: flex; align-items: center; gap: 12px;
+  transition: transform .25s var(--ease-out);
+}
+.unit-reading-open:hover { transform: translateX(6px); }
+.unit-reading-text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.unit-reading-title { font-size: 14.5px; font-weight: 600; }
+.unit-reading-source { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--old-gold); }
+.unit-reading-arrow { flex: 0 0 auto; font-size: 12px; opacity: .65; }
+.unit-reading-audio {
+  flex: 0 0 auto; width: 38px; height: 38px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; color: var(--white);
+  background: var(--gradient-institutional);
+  transition: transform .2s var(--ease-out), box-shadow .2s var(--ease-out);
+}
+.unit-reading-audio:hover { transform: scale(1.08); box-shadow: var(--shadow-soft); }
 
 /* ---------- tipo: actividades ---------- */
 /* Filas numeradas y compactas por defecto (mismo espíritu que la lista de
@@ -826,3 +968,61 @@ button { font-family: inherit; cursor: pointer; background: none; border: none; 
   .media-modal { padding: 16px; height: min(88vh, 640px); }
   .media-modal-go { right: 16px; bottom: 16px; padding: 10px 18px; font-size: 13px; }
 }
+
+/* ==========================================================================
+   Modal de lectura — propio de "lecturas" (ítems embebido:true). Una sola
+   columna: barra angosta arriba (ícono + título + audiolibro + cerrar) y
+   el documento ocupando prácticamente todo el modal — nada decorativo
+   compitiendo por espacio con la lectura en sí. Ver openReadingModal() en
+   main.js.
+   ========================================================================== */
+.reading-modal-overlay {
+  position: fixed; inset: 0; z-index: 400;
+  background: rgba(4,12,56,.55); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);
+  display: flex; align-items: center; justify-content: center; padding: 4vh 3vw;
+  opacity: 0; pointer-events: none; transition: opacity .25s var(--ease-out);
+}
+.reading-modal-overlay.is-open { opacity: 1; pointer-events: auto; }
+.reading-modal {
+  width: min(1040px, 100%); height: min(88vh, 760px); max-height: 92vh;
+  background: var(--white); border-radius: 20px; overflow: hidden;
+  display: flex; flex-direction: column;
+  box-shadow: 0 40px 80px rgba(4,12,56,.4);
+  transform: scale(.94); transition: transform .3s var(--ease-out);
+}
+.reading-modal-overlay.is-open .reading-modal { transform: scale(1); }
+
+.reading-modal-header {
+  flex: 0 0 auto;
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 14px 12px 16px;
+  background: var(--platinum);
+  border-bottom: 1px solid rgba(4,12,56,.08);
+}
+.reading-modal-icon {
+  flex: 0 0 auto; width: 32px; height: 32px; border-radius: 9px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; color: var(--white);
+  background: linear-gradient(135deg, var(--royal-blue), var(--dodger-blue));
+}
+.reading-modal-title { flex: 1 1 auto; min-width: 0; margin: 0; font-size: 14.5px; font-weight: 700; color: var(--oxford-blue); line-height: 1.35; }
+.reading-modal-audio {
+  flex: 0 0 auto;
+  display: inline-flex; align-items: center; gap: 7px;
+  font-size: 12.5px; font-weight: 700; color: var(--white);
+  background: var(--gradient-institutional);
+  padding: 9px 14px; border-radius: 999px; text-decoration: none;
+  transition: transform .2s var(--ease-out);
+}
+.reading-modal-audio:hover { transform: translateY(-2px); }
+.reading-modal-audio span { display: none; }
+@media (min-width: 480px) { .reading-modal-audio span { display: inline; } }
+.reading-modal-close {
+  flex: 0 0 auto; width: 32px; height: 32px; border-radius: 50%;
+  border: none; background: var(--white); color: var(--royal-blue); font-size: 13px;
+  display: flex; align-items: center; justify-content: center; transition: background .2s;
+}
+.reading-modal-close:hover { background: var(--light-cyan); }
+
+.reading-modal-frame { flex: 1 1 auto; min-height: 0; background: var(--platinum); }
+.reading-modal-frame iframe { width: 100%; height: 100%; border: 0; display: block; }

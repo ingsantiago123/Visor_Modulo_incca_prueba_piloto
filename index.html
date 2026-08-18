@@ -85,6 +85,27 @@
   </div>
 </div>
 
+<!-- Modal propio de "lecturas" (embebido:true): una sola columna, el
+     documento ocupa casi todo el modal (nada de panel decorativo
+     compitiendo con el espacio de lectura) — ver openReadingModal() en
+     main.js. Distinto del modal genérico de arriba (ese lo siguen
+     usando video/documento/actividades). -->
+<div class="reading-modal-overlay" id="readingModalOverlay">
+  <div class="reading-modal" role="dialog" aria-modal="true" aria-labelledby="readingModalTitle">
+    <div class="reading-modal-header">
+      <span class="reading-modal-icon" aria-hidden="true"><i class="fa-solid fa-book-open-reader"></i></span>
+      <h3 class="reading-modal-title" id="readingModalTitle"></h3>
+      <a class="reading-modal-audio" id="readingModalAudio" href="#" target="_blank" rel="noopener" hidden>
+        <i class="fa-solid fa-headphones" aria-hidden="true"></i> <span>Audiolibro</span>
+      </a>
+      <button class="reading-modal-close" id="readingModalClose" type="button" aria-label="Cerrar">
+        <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+      </button>
+    </div>
+    <div class="reading-modal-frame" id="readingModalFrame"></div>
+  </div>
+</div>
+
 <script src="./assets/js/main.js"></script>
 </body>
 </html>

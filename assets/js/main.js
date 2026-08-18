@@ -48,7 +48,7 @@
     recursos: []
   };
 
-  const TIPOS_VALIDOS = ["texto", "video-grid", "video", "documento", "enlaces", "actividades", "personalizado"];
+  const TIPOS_VALIDOS = ["texto", "video-grid", "video", "documento", "enlaces", "lecturas", "actividades", "personalizado"];
 
   const DEFAULTS_POR_TIPO = {
     texto: { titulo: "Recurso de lectura", parrafos: [], items: [] },
@@ -56,6 +56,11 @@
     video: { titulo: "Video", url: "" },
     documento: { titulo: "Documento", documento_titulo: "", iframe_url: "", enlace_url: "", adjunto: null },
     enlaces: { titulo: "Enlaces complementarios", items: [] },
+    // "lecturas" es DISTINTO de "texto": no es contenido escrito adentro
+    // del visor, es una LISTA de documentos externos (típicamente PDFs en
+    // Google Drive) con su propio audiolibro opcional — ver mergeRecurso()
+    // para el detalle de "variante" (apoyo/complementarias) y "embebido".
+    lecturas: { titulo: "Lecturas", descripcion: "", variante: "apoyo", items: [] },
     actividades: { titulo: "Actividades", items: [] },
     personalizado: { titulo: "Recurso personalizado", iframe: "", html: "" }
   };
@@ -63,13 +68,17 @@
   // Ícono por tipo "original" (antes de normalizar "video" -> "video-grid").
   const META_ICON = {
     texto: "fa-book-open", "video-grid": "fa-clapperboard", video: "fa-circle-play",
-    documento: "fa-file-lines", enlaces: "fa-link", actividades: "fa-list-check", personalizado: "fa-puzzle-piece"
+    documento: "fa-file-lines", enlaces: "fa-link", lecturas: "fa-book-open-reader",
+    actividades: "fa-list-check", personalizado: "fa-puzzle-piece"
   };
 
   // Cada tipo de recurso "normalizado" vive en un tema visual propio —
   // no es una tarjeta genérica, es un capítulo con su propia identidad.
-  const GROUP_BY_TYPE = { texto: "light", "video-grid": "dark", documento: "paper", enlaces: "warm", actividades: "accent", personalizado: "light" };
-  const EYEBROW_BY_TYPE = { texto: "LECTURA", "video-grid": "MULTIMEDIA", documento: "DOCUMENTO", enlaces: "REFERENCIAS", actividades: "ACTIVIDADES", personalizado: "PERSONALIZADO" };
+  // "lecturas" es la excepción: su tema/eyebrow dependen de "variante"
+  // (apoyo/complementarias), no son fijos por tipo — se resuelven aparte,
+  // más abajo en mergeRecurso(); estas entradas son solo el respaldo.
+  const GROUP_BY_TYPE = { texto: "light", "video-grid": "dark", documento: "paper", enlaces: "warm", lecturas: "paper", actividades: "accent", personalizado: "light" };
+  const EYEBROW_BY_TYPE = { texto: "LECTURA", "video-grid": "MULTIMEDIA", documento: "DOCUMENTO", enlaces: "REFERENCIAS", lecturas: "LECTURAS", actividades: "ACTIVIDADES", personalizado: "PERSONALIZADO" };
 
   const VIDEO_TINTS = [
     "linear-gradient(135deg, #65CBE3, #2B8BFA)",
@@ -188,6 +197,28 @@
           fuente: (it && it.fuente) || ""
         })) : def.items
       };
+    } else if (tipo === "lecturas") {
+      // "variante" es del RECURSO completo (todas sus lecturas comparten
+      // el mismo tratamiento visual — dos diseños distintos, no una mezcla
+      // por ítem): "apoyo" (claro, con espacio para audiolibro) o
+      // "complementarias" (oscuro/dorado, solo título+link, sin audio).
+      // Cada ítem controla su PROPIO comportamiento de apertura:
+      // "embebido":true lo abre en el modal de pantalla completa del
+      // propio visor (como el botón "Pantalla completa" de "documento");
+      // sin eso, es un link normal a pestaña nueva. "audio_url" es
+      // independiente y opcional en cualquiera de los dos casos — si un
+      // ítem puntual no trae audiolibro, simplemente no muestra el ícono.
+      cuerpo = {
+        variante: r.variante === "complementarias" ? "complementarias" : "apoyo",
+        descripcion: r.descripcion || def.descripcion,
+        items: Array.isArray(r.items) ? r.items.map((it) => ({
+          titulo: (it && it.titulo) || "",
+          url: (it && it.url) || "#",
+          embebido: !!(it && it.embebido),
+          audio_url: (it && it.audio_url) || "",
+          fuente: (it && it.fuente) || ""
+        })) : def.items
+      };
     } else if (tipo === "actividades") {
       // Cada actividad trae, como mucho, 3 datos: nombre, link y una
       // descripción — que puede ser texto plano o HTML. Cuál de los dos
@@ -212,11 +243,20 @@
       cuerpo = { iframe: r.iframe || def.iframe, html: r.html || def.html };
     }
 
-    const tema = GROUP_BY_TYPE[tipo] || "light";
+    // "lecturas" es la única excepción a "tema/eyebrow fijos por tipo": acá
+    // dependen de "variante", calculada arriba en el bloque de cuerpo.
+    const esComplementaria = tipo === "lecturas" && cuerpo.variante === "complementarias";
+    const tema = tipo === "lecturas"
+      ? (esComplementaria ? "warm" : "paper")
+      : (GROUP_BY_TYPE[tipo] || "light");
+    const eyebrow = tipo === "lecturas"
+      ? (esComplementaria ? "LECTURAS COMPLEMENTARIAS" : "LECTURAS DE APOYO")
+      : (EYEBROW_BY_TYPE[tipo] || "RECURSO");
+
     return Object.assign({
       id, tipo, tipoOriginal, titulo, visible, orden,
       icon: META_ICON[tipoOriginal] || META_ICON[tipo],
-      tema, eyebrow: EYEBROW_BY_TYPE[tipo] || "RECURSO"
+      tema, eyebrow
     }, cuerpo);
   }
 
@@ -390,6 +430,84 @@
       </li>`).join("")}</ul>`;
   }
 
+  // Cada lectura es una fila: ícono + título (link) + audiolibro opcional.
+  // "embebido" decide qué ES el título: un <a> normal a pestaña nueva, o
+  // un <button> que abre el documento en el modal de pantalla completa
+  // del propio visor (mismo modal que usa "documento" — ver
+  // initReadingOpens()). El ícono de flecha del título cambia entre los
+  // dos casos (expandir vs. salir) para que se note ANTES de tocarlo qué
+  // va a pasar. El audiolibro, si llega, es SIEMPRE un link normal —
+  // nunca se embebe.
+  // "apoyo" es una GRILLA de tarjetas (protagonismo para el audiolibro,
+  // pensado para pocos ítems bien destacados); "complementarias" es una
+  // lista compacta de filas (pensado para escalar a muchas referencias
+  // sin ocupar tanto espacio vertical) — mismo dato, dos plantillas.
+  // La "tapa" es a propósito un librito de verdad, no una insignia chica:
+  // dos hojas sueltas y rotadas detrás simulan una pila de papel, y la
+  // tapa de encima gira sobre su lomo (rotateY, con perspective en el
+  // contenedor) al pasar el mouse — el mismo gesto físico de abrir un
+  // libro — revelando una hoja con líneas de texto simuladas debajo. Sin
+  // esto la tarjeta era "un cuadrado con texto" y no se entendía de un
+  // vistazo que representa una LECTURA.
+  function lecturaCardHtml(r, it, i) {
+    const flechaIcon = it.embebido ? "fa-expand" : "fa-arrow-up-right-from-square";
+    const cuerpoAbrir = `
+      <span class="unit-reading-card-cover-wrap" aria-hidden="true">
+        <span class="unit-reading-card-stack unit-reading-card-stack--1"></span>
+        <span class="unit-reading-card-stack unit-reading-card-stack--2"></span>
+        <span class="unit-reading-card-page">
+          <span class="unit-reading-card-page-line" style="width:70%"></span>
+          <span class="unit-reading-card-page-line" style="width:88%"></span>
+          <span class="unit-reading-card-page-line" style="width:55%"></span>
+        </span>
+        <span class="unit-reading-card-cover">
+          <span class="unit-reading-card-pdf-badge">PDF</span>
+          <i class="fa-solid fa-book-open-reader"></i>
+        </span>
+      </span>
+      <span class="unit-reading-card-title">${it.titulo}</span>
+      ${it.fuente ? `<span class="unit-reading-card-source">${it.fuente}</span>` : ""}
+      <span class="unit-reading-card-cta">Ver documento <i class="fa-solid ${flechaIcon}" aria-hidden="true"></i></span>`;
+    const abrir = it.embebido
+      ? `<button class="unit-reading-card-open" type="button" data-resource="${r.id}" data-item="${i}">${cuerpoAbrir}</button>`
+      : `<a class="unit-reading-card-open" href="${it.url}" target="_blank" rel="noopener">${cuerpoAbrir}</a>`;
+    const audio = it.audio_url
+      ? `<a class="unit-reading-card-audio" href="${it.audio_url}" target="_blank" rel="noopener"><i class="fa-solid fa-headphones" aria-hidden="true"></i> Escuchar audiolibro</a>`
+      : "";
+    return `<div class="unit-reading-card">${abrir}${audio}</div>`;
+  }
+
+  function lecturaRowHtml(r, it, i) {
+    const flechaIcon = it.embebido ? "fa-expand" : "fa-arrow-up-right-from-square";
+    const tituloHtml = `
+      <span class="unit-reading-text">
+        <span class="unit-reading-title">${it.titulo}</span>
+        ${it.fuente ? `<span class="unit-reading-source">${it.fuente}</span>` : ""}
+      </span>
+      <i class="unit-reading-arrow fa-solid ${flechaIcon}" aria-hidden="true"></i>`;
+    const abrir = it.embebido
+      ? `<button class="unit-reading-open" type="button" data-resource="${r.id}" data-item="${i}">${tituloHtml}</button>`
+      : `<a class="unit-reading-open" href="${it.url}" target="_blank" rel="noopener">${tituloHtml}</a>`;
+    const audio = it.audio_url
+      ? `<a class="unit-reading-audio" href="${it.audio_url}" target="_blank" rel="noopener" title="Escuchar audiolibro" aria-label="Escuchar audiolibro: ${it.titulo}"><i class="fa-solid fa-headphones" aria-hidden="true"></i></a>`
+      : "";
+    return `
+      <li class="unit-reading-item">
+        <span class="unit-reading-icon" aria-hidden="true"><i class="fa-solid fa-book-open-reader"></i></span>
+        ${abrir}
+        ${audio}
+      </li>`;
+  }
+
+  function cuerpoLecturas(r) {
+    const intro = r.descripcion ? `<p>${r.descripcion}</p>` : "";
+    if (!r.items.length) return `${intro}<p class="unit-empty-inline">Todavía no hay lecturas para este recurso.</p>`;
+    if (r.variante === "complementarias") {
+      return `${intro}<ul class="unit-readings">${r.items.map((it, i) => lecturaRowHtml(r, it, i)).join("")}</ul>`;
+    }
+    return `${intro}<div class="unit-readings-grid">${r.items.map((it, i) => lecturaCardHtml(r, it, i)).join("")}</div>`;
+  }
+
   // Una fila numerada por actividad — pensado para escalar a MUCHAS
   // actividades sin volverse una pared de tarjetas idénticas: por
   // defecto la fila es angosta (número + nombre + botón "ir"), y la
@@ -463,6 +581,7 @@
     "video-grid": cuerpoVideoGrid,
     documento: cuerpoDocumento,
     enlaces: cuerpoEnlaces,
+    lecturas: cuerpoLecturas,
     actividades: cuerpoActividades,
     personalizado: cuerpoPersonalizado
   };
@@ -516,6 +635,7 @@
     initLessonToggles(main);
     initVideoCards(main);
     initDocFullscreen(main);
+    initReadingOpens(main);
     initActivityToggles(main);
     initActivityPopups(main);
     initRail();
@@ -572,6 +692,19 @@
         const r = recursosPorId[btn.dataset.resource];
         if (!r || !r.iframe_url) return;
         openMediaModal(r.documento_titulo || r.titulo, toEmbedUrl(r.iframe_url));
+      });
+    });
+  }
+
+  // Solo los ítems "embebido":true son <button data-resource>; los <a>
+  // normales no llevan ese atributo, así que este selector los ignora solo.
+  function initReadingOpens(scope) {
+    $$(".unit-reading-open[data-resource], .unit-reading-card-open[data-resource]", scope).forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const r = recursosPorId[btn.dataset.resource];
+        const item = r && r.items[Number(btn.dataset.item)];
+        if (!item) return;
+        openReadingModal(item.titulo || r.titulo, toEmbedUrl(item.url), item.audio_url);
       });
     });
   }
@@ -744,6 +877,37 @@
   }
 
   /* ---------------------------------------------------------------------
+   * 11b. Modal de lectura — propio (no el genérico de arriba): panel
+   *      "tapa de libro" a la izquierda + documento real embebido a la
+   *      derecha. Solo lo abren los ítems "embebido":true de "lecturas".
+   * ------------------------------------------------------------------- */
+  function openReadingModal(titulo, embedUrl, audioUrl) {
+    $("#readingModalTitle").textContent = titulo || "";
+    $("#readingModalFrame").innerHTML = embedUrl
+      ? `<iframe src="${embedUrl}" title="${titulo || ""}" allow="autoplay; fullscreen" allowfullscreen></iframe>`
+      : `<div class="unit-doc-frame-empty"><i class="fa-solid fa-file-circle-question" aria-hidden="true"></i><span>Este documento todavía no está disponible.</span></div>`;
+    const audioBtn = $("#readingModalAudio");
+    audioBtn.hidden = !audioUrl;
+    if (audioUrl) audioBtn.href = audioUrl;
+    $("#readingModalOverlay").classList.add("is-open");
+  }
+
+  function closeReadingModal() {
+    $("#readingModalOverlay").classList.remove("is-open");
+    $("#readingModalFrame").innerHTML = "";
+  }
+
+  function initReadingModal() {
+    $("#readingModalClose").addEventListener("click", closeReadingModal);
+    $("#readingModalOverlay").addEventListener("click", (e) => {
+      if (e.target.id === "readingModalOverlay") closeReadingModal();
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && $("#readingModalOverlay").classList.contains("is-open")) closeReadingModal();
+    });
+  }
+
+  /* ---------------------------------------------------------------------
    * 12. Arranque
    * ------------------------------------------------------------------- */
   document.addEventListener("DOMContentLoaded", () => {
@@ -751,6 +915,7 @@
     renderHero(datos, datos.recursos.length > 0);
     renderContenido(datos);
     initMediaModal();
+    initReadingModal();
     initScrollProgress();
     initHeroParallax();
   });

@@ -15,6 +15,21 @@ una semana de Moodle (bloques tipo tabla con imagen + texto, grillas de
 video, documentos embebidos, listas de enlaces, actividades con foros o
 talleres).
 
+## Índice
+
+- [Principio de diseño: cero datos hardcodeados](#principio-de-diseño-cero-datos-hardcodeados)
+- [Cómo probarlo en tu máquina](#cómo-probarlo-en-tu-máquina)
+- [Cómo llegan los datos: `window.name`, a fondo](#cómo-llegan-los-datos-windowname-a-fondo)
+- [Esquema del JSON](#esquema-del-json)
+  - [Los 7 tipos de recurso, de un vistazo](#los-7-tipos-de-recurso-de-un-vistazo)
+- [Enlaces embebidos automáticamente: `toEmbedUrl()`](#enlaces-embebidos-automáticamente-toembedurl)
+- [Estados vacíos y tolerancia a datos parciales](#estados-vacíos-y-tolerancia-a-datos-parciales)
+- [Franja de estadísticas: siempre calculada, nunca hardcodeada](#franja-de-estadísticas-siempre-calculada-nunca-hardcodeada)
+- [Interfaz](#interfaz)
+- [Estructura del proyecto](#estructura-del-proyecto)
+
+---
+
 ## Principio de diseño: cero datos hardcodeados
 
 Ningún texto, enlace ni recurso vive en el código. Todo llega desde
@@ -23,6 +38,37 @@ afuera como JSON. El único campo con contenido garantizado es `unidad`
 genérico ("Nombre de la unidad") en vez de romper la página. Cada campo
 se completa de forma **independiente** — datos parciales siempre se ven
 bien, nunca a medias ni rotos.
+
+---
+
+## Cómo probarlo en tu máquina
+
+No hace falta Moodle para ver el visor andando con datos reales:
+
+1. Abrí la carpeta raíz del repo (un nivel arriba de esta) con tu
+   editor y arrancá un servidor local — por ejemplo, la extensión
+   **Live Server** de VS Code (clic derecho sobre
+   `prueba-visor-unidad.html` → "Open with Live Server").
+2. `prueba-visor-unidad.html` es un HTML mínimo, un nivel arriba de esta
+   carpeta, con un solo `<iframe src="http://127.0.0.1:5500/visor unidad/index.html">`
+   que le pasa datos de ejemplo reales de una unidad completa (los 7
+   tipos de recurso, con links de verdad) a través de su atributo
+   `name` — exactamente como lo haría Moodle (ver la sección de abajo
+   para el porqué de `window.name`).
+3. Para probar tu propio JSON: abrí `prueba-visor-unidad.html`, editá el
+   objeto dentro del atributo `name='...'` del `<iframe>`. Ojo con el
+   escapado: ese archivo usa comillas simples para envolver el
+   atributo, y las comillas dobles PROPIAS del JSON van escapadas como
+   `&quot;` adentro (el mismo resultado que produce
+   `htmlspecialchars(json_encode($datos), ENT_QUOTES)` en PHP — ver la
+   forma recomendada de fijar `window.name`, más abajo). Guardá y Live
+   Server recarga solo.
+4. Si abrís `index.html` de este visor DIRECTO, sin pasar por
+   `prueba-visor-unidad.html` (o sea, sin que nada haya fijado
+   `window.name`), no vas a ver contenido real — vas a caer en los
+   placeholders genéricos (`SIN_DATOS`). Eso es lo esperado: sirve para
+   confirmar que el estado "sin datos" se ve bien, no para ver una
+   unidad real.
 
 ---
 
@@ -199,11 +245,26 @@ Antes de mirar los campos propios de cada `tipo`, estos aplican siempre:
 
 | Campo | Tipo | Si falta | Notas |
 |---|---|---|---|
-| `tipo` | string | — | **Obligatorio en la práctica**: si no es exactamente uno de `texto`, `video-grid`, `video`, `documento`, `enlaces`, `actividades`, `personalizado`, el recurso entero se descarta en silencio (no rompe el resto de la página, pero tampoco aparece). |
+| `tipo` | string | — | **Obligatorio en la práctica**: si no es exactamente uno de `texto`, `video-grid`, `video`, `documento`, `enlaces`, `lecturas`, `actividades`, `personalizado`, el recurso entero se descarta en silencio (no rompe el resto de la página, pero tampoco aparece). |
 | `id` | string | `"recurso-N"` (N = posición 1-based del recurso dentro del array `recursos` tal como llegó, **antes** de aplicar `visible`/`orden`) | Se usa como `id` del `<section>` HTML (para anclas `#id` y el riel de navegación) y como llave del mapa interno `recursosPorId` (clicks en video/documento/actividad). Si vas a enlazar a un recurso desde afuera, poné un `id` explícito y estable — no dependas del autogenerado, que cambia si reordenás el array. |
 | `titulo` | string | Un default específico por tipo (ver tabla de cada tipo abajo) | Título grande (`<h2>`) de la sección, y texto del riel/tooltip de navegación. |
 | `visible` | boolean | `true` | En `false`, el recurso se excluye **por completo**: no se renderiza su `<section>`, no cuenta en la franja de estadísticas, no aparece en el riel de navegación, y no ocupa un número de watermark. Es exactamente como si no estuviera en el array — la diferencia es que queda documentado/reversible en el JSON en vez de borrado. |
 | `orden` | number | La posición 0-based original del recurso en el array `recursos` (el mismo índice que alimenta el `id` autogenerado) | Determina el orden final de renderizado — **no** el orden en que aparece escrito en el array. Con `orden` explícito podés reordenar sin reescribir el array entero, o intercalar un recurso `personalizado` entre dos recursos "normales". Si dos recursos empatan en `orden`, se desempata por su posición original en el array (orden estable). El **watermark** (número gigante de fondo), el `"X de Y"` del eyebrow y la posición en el riel siempre reflejan este orden FINAL — nunca el orden crudo en que están escritos en el JSON. |
+
+### Los 7 tipos de recurso, de un vistazo
+
+| `tipo` | Para qué sirve | Campo(s) que lo definen |
+|---|---|---|
+| `texto` | Introducción/lectura escrita, con "lecciones" plegables opcionales | `parrafos`, `items[].descripcion` |
+| `video-grid` | Varios videos en grilla | `items[].url` |
+| `video` | Un solo video destacado (misma plantilla que `video-grid`, un ítem) | `url` |
+| `documento` | Un documento embebido (PDF/Drive) con acciones (pantalla completa, abrir, adjunto) | `iframe_url` |
+| `enlaces` | Lista de referencias externas genéricas, para leer (no se embeben) | `items[].url` |
+| `lecturas` | Lecturas específicamente — documento + audiolibro opcional, dos plantillas visuales (`apoyo`/`complementarias`) | `variante`, `items[].audio_url`, `items[].embebido` |
+| `actividades` | Actividades con nombre + link + descripción plegable (texto o HTML) | `items[].descripcion`, `items[].descripcion_html` |
+| `personalizado` | HTML o iframe de confianza, para lo que no encaje en los otros 6 | `html` / `iframe` |
+
+Detalle completo de cada uno, con su JSON de ejemplo, abajo.
 
 ### `texto` — lectura/introducción con línea de tiempo de lecciones
 
@@ -294,6 +355,59 @@ en el recurso (`url`, `portada`), no dentro de un array `items`.
 | `items` | array de `{ titulo, url, fuente }` | `[]` | Con 0 ítems: "Todavía no hay enlaces para este recurso." |
 | `items[].url` | string | `"#"` | Se abre tal cual, `target="_blank"` — **no** pasa por `toEmbedUrl()` (son enlaces para leer, no para embeber). |
 | `items[].fuente` | string | `""` → no se muestra la etiqueta de fuente | Badge pequeño bajo el título (p. ej. "DOI", "SciELO"). |
+
+### `lecturas` — lista de lecturas (documento + audiolibro opcional)
+
+Distinto de `enlaces`: **esto es específicamente para lecturas** — documentos
+(típicamente PDFs en Google Drive) que además pueden tener una versión en
+audio ("audiolibro", normalmente un `.wav`). Dos variantes visuales por
+recurso (todos sus ítems comparten una — no se mezclan dentro del mismo
+recurso):
+
+```jsonc
+{
+  "tipo": "lecturas",
+  "titulo": "Lecturas de apoyo",       // default: "Lecturas"
+  "descripcion": "Documentos para profundizar en el tema de la unidad. Cada lectura está disponible en texto y como audiolibro.",  // opcional
+  "variante": "apoyo",                 // "apoyo" (default) | "complementarias"
+  "items": [
+    {
+      "titulo": "Introducción conceptual",
+      "url": "https://drive.google.com/file/d/XXX/view",
+      "embebido": true,                // true: se abre en el modal de lectura del propio visor. false/ausente: pestaña nueva
+      "audio_url": "https://drive.google.com/file/d/YYY/view",  // opcional — omitirlo no muestra el ícono de audio en ESE ítem
+      "fuente": "DOI"                  // opcional — igual que en "enlaces"
+    }
+  ]
+}
+```
+
+| Campo | Tipo | Default | Notas |
+|---|---|---|---|
+| `descripcion` | string | `""` → sin subtítulo | Párrafo corto arriba de la lista/grilla, mismo estilo que cualquier `<p>` de la sección. |
+| `variante` | `"apoyo"` \| `"complementarias"` | `"apoyo"` | Cambia la PLANTILLA completa, no solo el color: `"apoyo"` es una grilla de tarjetas con portada tipo libro (ver abajo); `"complementarias"` es una lista compacta de filas (pensada para escalar a muchas referencias). También cambia el tema visual (claro vs. oscuro/dorado) y el eyebrow ("LECTURAS DE APOYO" / "LECTURAS COMPLEMENTARIAS"). Es del **recurso completo**, no por ítem — no se mezclan las dos plantillas dentro del mismo recurso. |
+| `items` | array | `[]` | Con 0 ítems: "Todavía no hay lecturas para este recurso." |
+| `items[].url` | string | `"#"` | El documento en sí (típicamente Drive). |
+| `items[].embebido` | booleano | `false` | `true` → el título se vuelve un botón que abre el documento (pasa por `toEmbedUrl()`) en el **modal de lectura** (propio de este tipo, no el modal genérico de video/documento/actividades — ver más abajo). `false` → link normal a pestaña nueva. El ícono de flecha junto al título cambia solo (expandir vs. salir) para que se note antes de tocarlo. |
+| `items[].audio_url` | string | `""` → sin ícono de audio en ese ítem | Siempre un link normal a pestaña nueva (nunca se embebe, aunque `embebido` sea `true` para el documento). Pensado para el `.wav`/audiolibro de esa misma lectura. |
+| `items[].fuente` | string | `""` → sin etiqueta | Igual que en `enlaces` — badge pequeño bajo el título. |
+
+**Tarjeta de la variante "apoyo"**: la portada no es un ícono chico en
+una esquina, es un librito de verdad — dos hojas rotadas detrás simulan
+una pila de papel, y la tapa (degradé institucional + insignia "PDF")
+gira sobre su lomo al pasar el mouse por la tarjeta, revelando una hoja
+con líneas de texto simuladas debajo — el mismo gesto físico de abrir
+un libro. Las tarjetas entran en cascada (una cada ~80ms) cuando la
+sección se vuelve visible.
+
+**Modal de lectura**: los ítems `embebido:true` NO usan el modal
+genérico de video/documento/actividades — abren uno propio
+(`#readingModalOverlay` en `index.html` / `openReadingModal()` en
+`main.js`), de una sola columna: una barra angosta arriba (ícono +
+título + botón de audiolibro si el ítem lo trae + cerrar) y el
+documento ocupando prácticamente todo el modal. A propósito NO tiene el
+panel "tapa de libro" grande de las tarjetas — ahí es decorativo y
+suma; acá competiría por espacio con la lectura en sí.
 
 ### `actividades` — una o varias actividades: nombre + link + descripción
 
@@ -412,6 +526,13 @@ lo que realmente hay**, no la cantidad de recursos:
 Si un tipo no tiene ningún recurso visible, su píldora simplemente no
 aparece (no se muestra "0 Videos").
 
+`lecturas` es la excepción: no suma su propia píldora. Si tuviera la
+misma etiqueta "Lectura(s)" que ya usa `texto`, un curso que use ambos
+tipos a la vez vería dos píldoras "Lecturas" distintas — confuso y
+redundante. Sus lecturas SÍ se cuentan igual dentro de su propia
+sección (el número de ítems determina el layout), solo no suman a la
+franja de estadísticas del hero.
+
 ---
 
 ## Interfaz
@@ -432,10 +553,13 @@ aparece (no se muestra "0 Videos").
   horizontal flotante abajo, con scroll lateral e ícono-solamente por
   ítem (escala a cualquier cantidad de recursos sin verse apretado), con
   el nombre completo del recurso activo en una etiqueta fija arriba.
-- **Modal de pantalla completa** compartido por video, documento y las
+- **Modal de pantalla completa**, compartido por video, documento y las
   descripciones HTML de `actividades` (fondo con blur, animación de
   entrada, cierra con Escape/clic afuera, destruye el contenido al
-  cerrar para detener la reproducción).
+  cerrar para detener la reproducción). Los ítems `embebido:true` de
+  `lecturas` NO usan este: tienen su propio **modal de lectura**, de una
+  sola columna, pensado para maximizar el espacio de lectura (ver la
+  sección `lecturas` más arriba).
 - Revelado en cascada (marca de agua → eyebrow → título → cuerpo) al
   entrar cada sección en pantalla, más barra de progreso de lectura
   arriba de todo; todo respeta `prefers-reduced-motion`.
