@@ -4,12 +4,16 @@
    llegue se completa, campo a campo, con un placeholder genérico — nunca
    con contenido inventado que pueda confundirse con datos reales.
 
-   Cada recurso se renderiza como una sección a pantalla completa con un
-   tema propio según su tipo (claro/oscuro/papel/cálido/acento), navegada
-   por un riel flotante: vertical a la izquierda en escritorio (>=980px),
-   y el mismo componente reorientado a un dock horizontal fijo abajo en
-   pantallas angostas — no desaparece, se adapta (ver el CSS de
-   ".unit-rail" en styles.css para el cambio de layout).
+   MAZO HORIZONTAL: el hero y cada recurso son una DIAPOSITIVA del ancho
+   del viewport dentro de ".unit-main", que es una pista que se traslada
+   en X con transform (no con scroll — ver initDeck()). El <body> no
+   scrollea nunca. Se pasa de una diapositiva a otra con las flechas
+   (#deckPrev/#deckNext), el teclado (←/→, AvPág/RePág, Inicio/Fin), el
+   riel o —en táctil— arrastrando de lado. Si el contenido de una
+   diapositiva no cabe en el alto del viewport (= alto del iframe),
+   scrollea DENTRO de ella (.unit-scroll) — política de desbordamiento
+   acotada, nada queda recortado. Cada recurso tiene un tema propio según
+   su tipo (claro/oscuro/papel/cálido/acento).
 
    MOSTRAR/OCULTAR/REORDENAR (misma lógica que "secciones" en visor
    final, aplicada acá directo sobre cada ítem de "recursos" ya que aquí
@@ -105,6 +109,30 @@
     { tipo: "enlaces", icon: "fa-link", label: "Enlace", plural: "Enlaces", contarItems: true },
     { tipo: "actividades", icon: "fa-list-check", label: "Actividad", plural: "Actividades", contarItems: true }
   ];
+
+  // Tipo de cada actividad (color + ícono + etiqueta de la tarjeta). Es
+  // OPCIONAL en el JSON ("items[].tipo"): si no llega o no es uno de estos,
+  // se infiere del módulo de Moodle en el link (mod/quiz, mod/forum,
+  // mod/workshop, mod/assign…) y, si tampoco, cae en "tarea". El color en
+  // sí vive en el CSS (.unit-activity[data-type="…"]).
+  const ACT_TYPES = ["quiz", "tarea", "foro", "taller", "entrega", "examen"];
+  const ACT_TYPE_META = {
+    quiz:    { label: "Quiz",    icon: "fa-circle-question" },
+    tarea:   { label: "Tarea",   icon: "fa-file-pen" },
+    foro:    { label: "Foro",    icon: "fa-comments" },
+    taller:  { label: "Taller",  icon: "fa-screwdriver-wrench" },
+    entrega: { label: "Entrega", icon: "fa-cloud-arrow-up" },
+    examen:  { label: "Examen",  icon: "fa-file-circle-check" }
+  };
+  function inferActType(tipo, link) {
+    if (ACT_TYPES.includes(tipo)) return tipo;
+    const l = String(link || "").toLowerCase();
+    if (l.indexOf("mod/quiz/") !== -1) return "quiz";
+    if (l.indexOf("mod/forum/") !== -1) return "foro";
+    if (l.indexOf("mod/workshop/") !== -1) return "taller";
+    if (l.indexOf("mod/assign/") !== -1) return "tarea";
+    return "tarea";
+  }
 
   /* ---------------------------------------------------------------------
    * 2. Lectura de datos desde window.name (JSON) — con try/catch de rescate
@@ -231,7 +259,8 @@
           nombre: (it && it.nombre) || "",
           link: (it && it.link) || "",
           descripcion: (it && it.descripcion) || "",
-          descripcionHtml: !!(it && it.descripcion_html)
+          descripcionHtml: !!(it && it.descripcion_html),
+          tipoActividad: inferActType(it && it.tipo, it && it.link)
         })) : def.items
       };
     } else if (tipo === "personalizado") {
@@ -291,8 +320,47 @@
     $("#heroDescripcion").textContent = datos.descripcion;
 
     initHeroBack(datos);
+    renderHeroCta(datos.recursos);
 
     $("#heroScrollTip").hidden = !hayRecursos;
+  }
+
+  /**
+   * CTA directo a "Actividades" flotando en el hero — solo si la unidad
+   * trae al menos un recurso "actividades". Salta a la PRIMERA diapositiva
+   * de actividades (el click lo engancha initDeck()). El número del badge
+   * es el total de actividades de TODA la unidad — mismo criterio que la
+   * franja de estadísticas.
+   */
+  function renderHeroCta(resources) {
+    const previo = $("#heroCta");
+    if (previo) previo.remove();
+
+    const actos = (resources || []).filter((r) => r.tipo === "actividades");
+    if (!actos.length) return;
+
+    const total = actos.reduce((n, r) => n + (r.items ? r.items.length : 0), 0);
+    const primera = actos[0];
+    const badge = total > 9 ? "9+" : String(total);
+
+    $("#hero").insertAdjacentHTML("beforeend", `
+      <button class="hero-cta-act" id="heroCta" type="button" data-target="${primera.id}" aria-label="Ir a las actividades de la unidad">
+        <span class="hero-cta-shimmer" aria-hidden="true"></span>
+        <span class="hero-cta-head">
+          <span class="hero-cta-icon-wrap" aria-hidden="true">
+            <i class="fa-solid fa-list-check"></i>
+            ${total ? `<span class="hero-cta-badge">${badge}</span>` : ""}
+          </span>
+          <span class="hero-cta-text">
+            <span class="hero-cta-label">${primera.titulo}</span>
+            <span class="hero-cta-sub">Pon en práctica lo aprendido</span>
+          </span>
+        </span>
+        <span class="hero-cta-pill">
+          <span>Ir a actividades</span>
+          <span class="hero-cta-pill-arrow" aria-hidden="true"><i class="fa-solid fa-arrow-right"></i></span>
+        </span>
+      </button>`);
   }
 
   /**
@@ -508,25 +576,26 @@
     return `${intro}<div class="unit-readings-grid">${r.items.map((it, i) => lecturaCardHtml(r, it, i)).join("")}</div>`;
   }
 
-  // Una fila numerada por actividad — pensado para escalar a MUCHAS
-  // actividades sin volverse una pared de tarjetas idénticas: por
-  // defecto la fila es angosta (número + nombre + botón "ir"), y la
-  // descripción (si hay) se expande solo si el usuario la pide, igual
-  // que el acordeón de lecciones de "texto". El botón "ir a la
-  // actividad" SIEMPRE está a la vista, sin depender de abrir nada.
+  // Una fila por actividad, con COLOR/ÍCONO/ETIQUETA según su "tipo"
+  // (quiz/tarea/foro/taller/entrega/examen — ver ACT_TYPE_META e
+  // inferActType). Pensada para escalar a MUCHAS actividades sin volverse
+  // una pared de tarjetas idénticas: la fila es angosta (índice + ícono de
+  // tipo + nombre + botón "ir"), y la descripción (si hay) se expande solo
+  // si el usuario la pide, igual que el acordeón de lecciones de "texto".
+  // El botón "ir a la actividad" SIEMPRE está a la vista.
   //   - sin descripción → nombre no es interactivo, no hay nada que abrir
   //   - descripcionHtml=false (default) → al expandir, texto plano en
-  //     párrafos (separados por línea en blanco) — "diseño perfecto"
-  //     para ese caso
-  //   - descripcionHtml=true → el HTML no se muestra inline (no se puede
-  //     mostrar "tal cual" sin arriesgar el layout): al expandir aparece
-  //     un botón que lo abre en el popup/modal
+  //     párrafos (separados por línea en blanco)
+  //   - descripcionHtml=true → al expandir aparece un botón que lo abre en
+  //     el popup/modal (el HTML no se muestra inline para no arriesgar el
+  //     layout)
   // "single": con una sola actividad no hay nada que escanear, así que
-  // arranca ya abierta y no lleva el número de fondo del acordeón.
+  // arranca ya abierta — ver cuerpoActividades() y ".unit-activities--single".
   function actividadCard(r, it, i, single) {
     const tieneDescripcion = !!it.descripcion;
     const esHtml = tieneDescripcion && it.descripcionHtml;
     const num = String(i + 1).padStart(2, "0");
+    const meta = ACT_TYPE_META[it.tipoActividad] || ACT_TYPE_META.tarea;
 
     const panelInner = esHtml
       ? `<div class="unit-activity-preview-wrap"><button class="unit-btn-outline unit-activity-preview" type="button" data-resource="${r.id}" data-item="${i}"><i class="fa-solid fa-file-lines" aria-hidden="true"></i> Ver actividad completa</button></div>`
@@ -534,6 +603,7 @@
 
     const abierta = single && tieneDescripcion;
     const nombreBtn = `<button class="unit-activity-toggle" type="button" aria-expanded="${abierta ? "true" : "false"}"${tieneDescripcion ? "" : " disabled"}>
+      <span class="unit-activity-type-icon" aria-hidden="true"><i class="fa-solid ${meta.icon}"></i></span>
       <span class="unit-activity-nombre">${it.nombre}</span>
       ${tieneDescripcion ? `<i class="fa-solid fa-chevron-down unit-activity-caret" aria-hidden="true"></i>` : ""}
     </button>`;
@@ -543,25 +613,33 @@
       : "";
 
     return `
-      <div class="unit-activity${abierta ? " is-open" : ""}">
+      <div class="unit-activity${abierta ? " is-open" : ""}" data-type="${it.tipoActividad}">
         <span class="unit-activity-index" aria-hidden="true">${num}</span>
         <div class="unit-activity-card">
-          <div class="unit-activity-row">${nombreBtn}${goBtn}</div>
+          <div class="unit-activity-row">
+            <span class="unit-activity-type">${meta.label}</span>
+            ${nombreBtn}${goBtn}
+          </div>
           ${tieneDescripcion ? `<div class="unit-activity-panel"><div class="unit-activity-panel-inner">${panelInner}</div></div>` : ""}
         </div>
       </div>`;
   }
 
-  // Con una sola actividad, la fila se agranda, arranca abierta y no
-  // lleva la línea conectora (no hay "secuencia" que mostrar con un solo
-  // ítem); con varias, son filas compactas conectadas por una línea,
-  // igual que la línea de tiempo de lecciones — ver
-  // ".unit-activities--single" en el CSS, que es lo único que cambia.
+  // DOS diseños, según cuántas actividades haya:
+  //   - varias  → filas compactas conectadas por una línea de tiempo
+  //     (".unit-activities"), cada una plegable
+  //   - una sola → ".unit-activities--single" agranda índice, ícono,
+  //     nombre y espaciado, y la única tarjeta arranca abierta
+  // La línea conectora se renderiza siempre (con una sola actividad queda
+  // detrás del índice, prácticamente invisible) — paridad 1:1 con el
+  // prototipo visor_no_scroll.
   function cuerpoActividades(r) {
     if (!r.items.length) return `<p class="unit-empty-inline">Todavía no hay actividades para este recurso.</p>`;
     const single = r.items.length === 1;
-    const linea = single ? "" : `<div class="unit-activities-line" aria-hidden="true"></div>`;
-    return `<div class="unit-activities${single ? " unit-activities--single" : ""}">${linea}${r.items.map((it, i) => actividadCard(r, it, i, single)).join("")}</div>`;
+    return `<div class="unit-activities${single ? " unit-activities--single" : ""}">
+      <div class="unit-activities-line" aria-hidden="true"></div>
+      ${r.items.map((it, i) => actividadCard(r, it, i, single)).join("")}
+    </div>`;
   }
 
   // Mismo modelo de confianza que "diapositivas_extra" del visor
@@ -600,36 +678,40 @@
 
     renderStats(datos, resources);
 
+    // El hero (y, sin recursos, el estado vacío) ya viven dentro de
+    // #unitMain en el HTML. Acá solo se AGREGAN las diapositivas de
+    // recurso — nunca se borra el hero con innerHTML.
     if (!resources.length) {
-      main.hidden = true;
-      rail.hidden = true;
       empty.hidden = false;
+      rail.hidden = true;
+      initDeck([]);
       return;
     }
     empty.hidden = true;
-    main.hidden = false;
     rail.hidden = false;
 
     const total = resources.length;
 
-    main.innerHTML = resources.map((r, i) => {
+    main.insertAdjacentHTML("beforeend", resources.map((r, i) => {
       recursosPorId[r.id] = r;
       const stepNum = String(i + 1).padStart(2, "0");
       const stepLabel = `${stepNum} de ${String(total).padStart(2, "0")}`;
       const cuerpo = CUERPOS[r.tipo](r);
       return `
-      <section class="unit-section" id="${r.id}" data-tema="${r.tema}">
+      <section class="unit-section unit-slide" id="${r.id}" data-tema="${r.tema}" data-icon="fa-solid ${r.icon}" aria-roledescription="diapositiva" aria-label="${r.titulo}" tabindex="-1">
         <span class="unit-watermark" aria-hidden="true">${stepNum}</span>
-        <div class="unit-inner">
-          <div class="unit-eyebrow-row">
-            <span class="unit-badge unit-badge--${r.tipo}" aria-hidden="true"><i class="fa-solid ${r.icon}"></i></span>
-            <span class="unit-eyebrow-text">${r.eyebrow} · ${stepLabel}</span>
+        <div class="unit-scroll">
+          <div class="unit-inner">
+            <div class="unit-eyebrow-row">
+              <span class="unit-badge unit-badge--${r.tipo}" aria-hidden="true"><i class="fa-solid ${r.icon}"></i></span>
+              <span class="unit-eyebrow-text">${r.eyebrow} · ${stepLabel}</span>
+            </div>
+            <h2 class="unit-title">${r.titulo}</h2>
+            <div class="unit-body">${cuerpo}</div>
           </div>
-          <h2 class="unit-title">${r.titulo}</h2>
-          <div class="unit-body">${cuerpo}</div>
         </div>
       </section>`;
-    }).join("");
+    }).join(""));
 
     renderNav(resources);
     initLessonToggles(main);
@@ -638,20 +720,24 @@
     initReadingOpens(main);
     initActivityToggles(main);
     initActivityPopups(main);
-    initRail();
-    initSectionsObservers(resources);
+    initDeck(resources);
   }
 
   function renderNav(resources) {
     const railTrack = $("#unitRailTrack");
-    railTrack.innerHTML = `
-      <div class="unit-rail-line" aria-hidden="true"></div>
-      <div class="unit-rail-fill" id="unitRailFill" aria-hidden="true"></div>
-      ${resources.map((r) => `
+    // Primer punto: el hero ("Inicio"). Luego, uno por recurso — mismo
+    // orden final del mazo. La etiqueta aparece al pasar el cursor / en el
+    // punto activo (CSS); initDeck() centra el activo en la pista.
+    const heroItem = `
+      <a href="#heroSlide" class="unit-rail-item" data-target="heroSlide" title="Inicio de la unidad">
+        <span class="unit-rail-dot"><i class="fa-solid fa-house"></i></span>
+        <span class="unit-rail-label">Inicio</span>
+      </a>`;
+    railTrack.innerHTML = heroItem + resources.map((r) => `
       <a href="#${r.id}" class="unit-rail-item" data-target="${r.id}" title="${r.titulo}">
         <span class="unit-rail-dot"><i class="fa-solid ${r.icon}"></i></span>
-        <span class="unit-rail-label"><span>${r.titulo}</span></span>
-      </a>`).join("")}`;
+        <span class="unit-rail-label">${r.titulo}</span>
+      </a>`).join("");
   }
 
   function initLessonToggles(scope) {
@@ -721,120 +807,209 @@
   }
 
   /* ---------------------------------------------------------------------
-   * 7. Riel — expandir etiquetas al pasar el mouse (desktop); en el modo
-   *    dock (<980px, ver CSS) las etiquetas ya son visibles siempre, así
-   *    que el hover ahí simplemente no tiene efecto visual.
+   * 7. Mazo horizontal — el hero y cada recurso son una DIAPOSITIVA del
+   *    ancho del viewport dentro de #unitMain. La pista se traslada en X
+   *    con transform + transición CSS (no con scroll): un transform no lo
+   *    "cancela" un cambio de estilo, cosa que sí le pasa al scroll con
+   *    scroll-snap: mandatory (re-engancha al origen si algo toca el
+   *    layout mientras anima). Se pasa con las flechas, el teclado (←/→,
+   *    AvPág/RePág, Inicio/Fin), el riel o —en táctil— arrastrando de
+   *    lado; un arrastre dominante en vertical lo scrollea .unit-scroll.
+   *    "current" solo lo mueve irA(): al cambiar se repinta todo (pista,
+   *    riel, barra de progreso, foco, "inert") y se revela la diapositiva.
    * ------------------------------------------------------------------- */
-  function initRail() {
-    const rail = $("#unitRail");
-    rail.addEventListener("mouseenter", () => rail.classList.add("is-hover"));
-    rail.addEventListener("mouseleave", () => rail.classList.remove("is-hover"));
-    $$(".unit-rail-item", rail).forEach((a) => a.addEventListener("click", onNavClick));
-  }
+  function initDeck(resources) {
+    const track = $("#unitMain");
+    const slides = Array.from(track.children).filter((el) => !el.hidden);
+    if (!slides.length) return;
 
-  function onNavClick(e) {
-    e.preventDefault();
-    const target = document.getElementById(e.currentTarget.dataset.target);
-    if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
-  }
-
-  /* ---------------------------------------------------------------------
-   * 8. Observadores de sección: revelado permanente al entrar en vista +
-   *    sección "activa" (resalta el ítem correspondiente del riel y
-   *    actualiza su línea de progreso)
-   * ------------------------------------------------------------------- */
-  function initSectionsObservers(resources) {
-    const secciones = $$(".unit-section");
-    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const total = resources.length;
-    const railItems = $$(".unit-rail-item");
-    const railFill = $("#unitRailFill");
-
-    function marcarActivo(id) {
-      const idx = resources.findIndex((r) => r.id === id);
-      if (idx === -1) return;
-      railItems.forEach((a) => a.classList.toggle("is-active", a.dataset.target === id));
-      if (railFill) railFill.style.height = (total > 1 ? (idx / (total - 1)) * 100 : 100) + "%";
-      // Solo se ve en el dock móvil (icono-solamente ahí): el nombre
-      // completo del recurso activo, una sola vez, no repetido por punto.
-      const r = resources[idx];
-      $("#unitRailCurrentIcon").innerHTML = `<i class="fa-solid ${r.icon}"></i>`;
-      $("#unitRailCurrentTitle").textContent = r.titulo;
-      $("#unitRailCurrentCount").textContent = `${idx + 1}/${total}`;
-    }
-
-    if (reduceMotion) {
-      secciones.forEach((sec) => sec.classList.add("is-visible"));
-    } else if ("IntersectionObserver" in window) {
-      const revealObserver = new IntersectionObserver((entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting) {
-            entry.target.classList.add("is-visible");
-            revealObserver.unobserve(entry.target);
-          }
-        });
-      }, { threshold: 0, rootMargin: "0px 0px -8% 0px" });
-      secciones.forEach((sec) => revealObserver.observe(sec));
-    } else {
-      secciones.forEach((sec) => sec.classList.add("is-visible"));
-    }
-
-    if (resources[0]) marcarActivo(resources[0].id);
-    if (!("IntersectionObserver" in window)) return;
-    const activeObserver = new IntersectionObserver((entries) => {
-      entries.forEach((entry) => {
-        if (entry.isIntersecting) marcarActivo(entry.target.id);
-      });
-    }, { rootMargin: "-35% 0px -55% 0px", threshold: 0 });
-    secciones.forEach((sec) => activeObserver.observe(sec));
-  }
-
-  /* ---------------------------------------------------------------------
-   * 9. Barra de progreso de lectura (fija arriba de todo)
-   * ------------------------------------------------------------------- */
-  function initScrollProgress() {
     const bar = $("#scrollProgress");
-    let ticking = false;
-    function actualizar() {
-      const doc = document.documentElement;
-      const max = doc.scrollHeight - doc.clientHeight;
-      const frac = max > 0 ? Math.min(1, doc.scrollTop / max) : 0;
-      if (bar) bar.style.transform = `scaleX(${frac})`;
-      ticking = false;
-    }
-    window.addEventListener("scroll", () => {
-      if (!ticking) { requestAnimationFrame(actualizar); ticking = true; }
-    }, { passive: true });
-    actualizar();
-  }
+    const prevBtn = $("#deckPrev");
+    const nextBtn = $("#deckNext");
+    const railTrack = $("#unitRailTrack");
+    const railItems = $$(".unit-rail-item");
+    const railIcon = $("#unitRailCurrentIcon");
+    const railTitle = $("#unitRailCurrentTitle");
+    const railCount = $("#unitRailCurrentCount");
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const total = slides.length;
+    let current = 0;
 
-  /* ---------------------------------------------------------------------
-   * 10. Parallax sutil de los blobs del hero según scroll de la página
-   * ------------------------------------------------------------------- */
-  function initHeroParallax() {
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-    const blobs = $$(".hero-blob");
-    if (!blobs.length) return;
-    let ticking = false;
-    function actualizar() {
-      const y = Math.min(window.scrollY, 600);
-      blobs.forEach((b, i) => {
-        const factor = i === 0 ? 0.2 : i === 1 ? -0.14 : 0.28;
-        // "translate" (no "transform"): los blobs ya animan "transform"
-        // vía @keyframes (incca-float) y una animación CSS siempre gana
-        // sobre un "transform" puesto inline — "translate" compone con
-        // "transform" sin pisarlo.
-        b.style.translate = `0 ${(y * factor).toFixed(1)}px`;
+    const revelar = (slide) => slide.classList.add("is-visible");
+    if (reduceMotion) slides.forEach(revelar);
+
+    // Nombre + ícono de una diapositiva vecina, para la etiqueta de la
+    // flecha contextual: el hero es "Inicio"; un recurso usa su título e
+    // ícono; si no se lo encuentra en "resources" (no debería), cae al
+    // <h2>/data-icon del propio <section>.
+    function infoDe(slide) {
+      if (!slide) return null;
+      if (slide.id === "heroSlide") return { nombre: "Inicio", icono: "fa-solid fa-house" };
+      const r = resources.find((x) => x.id === slide.id);
+      if (r) return { nombre: r.titulo, icono: `fa-solid ${r.icon}` };
+      const t = slide.querySelector(".unit-title");
+      return { nombre: t ? t.textContent.trim() : "Sección", icono: slide.dataset.icon || "fa-solid fa-shapes" };
+    }
+    function pintarFlecha(btn, slide) {
+      const info = infoDe(slide);
+      if (!info) return;
+      const label = btn.querySelector(".deck-arrow-label");
+      const icon = btn.querySelector(":scope > i");
+      if (label) label.textContent = info.nombre;
+      if (icon) icon.className = info.icono;
+      btn.setAttribute("aria-label", `Ir a ${info.nombre}`);
+    }
+
+    function pintar() {
+      const slide = slides[current];
+      const id = slide.id;
+      const resIdx = resources.findIndex((r) => r.id === id);
+
+      track.style.transform = `translateX(-${current * 100}%)`;
+
+      railItems.forEach((a) => {
+        const activo = a.dataset.target === id;
+        a.classList.toggle("is-active", activo);
+        if (activo) a.setAttribute("aria-current", "step");
+        else a.removeAttribute("aria-current");
       });
-      ticking = false;
+      // Traer el punto activo al centro de la pista del riel (con muchos
+      // recursos la pista scrollea sola).
+      const activoEl = railItems.find((a) => a.dataset.target === id);
+      if (activoEl && railTrack) {
+        const destino = activoEl.offsetLeft - railTrack.clientWidth / 2 + activoEl.offsetWidth / 2;
+        railTrack.scrollTo({ left: Math.max(0, destino), behavior: reduceMotion ? "auto" : "smooth" });
+      }
+
+      if (bar) bar.style.transform = `scaleX(${total > 1 ? current / (total - 1) : 1})`;
+
+      prevBtn.hidden = current === 0;
+      nextBtn.hidden = current === total - 1;
+      if (!prevBtn.hidden) pintarFlecha(prevBtn, slides[current - 1]);
+      if (!nextBtn.hidden) pintarFlecha(nextBtn, slides[current + 1]);
+
+      // La diapositiva que no se ve queda fuera del orden de tabulación y
+      // del alcance de lectores de pantalla.
+      slides.forEach((s, i) => { s.inert = i !== current; });
+
+      // Etiqueta del dock: nombre completo del recurso activo (una vez).
+      if (resIdx !== -1) {
+        const r = resources[resIdx];
+        railIcon.innerHTML = `<i class="fa-solid ${r.icon}"></i>`;
+        railTitle.textContent = r.titulo;
+        railCount.textContent = `${resIdx + 1}/${resources.length}`;
+      } else {
+        railIcon.innerHTML = `<i class="fa-solid fa-house"></i>`;
+        railTitle.textContent = "Inicio";
+        railCount.textContent = "";
+      }
+
+      if (history.replaceState) {
+        history.replaceState(null, "", resIdx !== -1 ? `#${id}` : location.pathname + location.search);
+      }
+
+      revelar(slide);
     }
-    window.addEventListener("scroll", () => {
-      if (!ticking) { requestAnimationFrame(actualizar); ticking = true; }
+
+    function irA(i, opts) {
+      opts = opts || {};
+      const destino = Math.max(0, Math.min(total - 1, i));
+      if (destino !== current) { current = destino; pintar(); }
+      if (opts.foco) slides[current].focus({ preventScroll: true });
+    }
+
+    // Al hacer clic, la burbuja "explota" (.is-popping) y recién después
+    // navega — salvo con reduced-motion, donde salta de una.
+    function activarFlecha(btn, delta) {
+      if (btn.classList.contains("is-popping")) return;
+      if (reduceMotion) { irA(current + delta, { foco: true }); return; }
+      btn.classList.remove("is-popping");
+      void btn.offsetWidth; // reinicia la animación aunque se dispare seguido
+      btn.classList.add("is-popping");
+      window.setTimeout(() => {
+        btn.classList.remove("is-popping");
+        irA(current + delta, { foco: true });
+      }, 340);
+    }
+    prevBtn.addEventListener("click", () => activarFlecha(prevBtn, -1));
+    nextBtn.addEventListener("click", () => activarFlecha(nextBtn, 1));
+
+    // CTA del hero (si lo creó renderHeroCta): salta a su recurso destino.
+    const heroCta = $("#heroCta");
+    if (heroCta) {
+      heroCta.addEventListener("click", () => {
+        const i = slides.findIndex((s) => s.id === heroCta.dataset.target);
+        if (i !== -1) irA(i, { foco: true });
+      });
+    }
+
+    document.addEventListener("keydown", (e) => {
+      if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
+      // Con un modal abierto, las flechas son del modal, no del mazo.
+      if ($(".media-modal-overlay.is-open") || $(".reading-modal-overlay.is-open")) return;
+      const tag = (e.target && e.target.tagName) || "";
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      switch (e.key) {
+        case "ArrowRight": case "PageDown": e.preventDefault(); irA(current + 1, { foco: true }); break;
+        case "ArrowLeft": case "PageUp": e.preventDefault(); irA(current - 1, { foco: true }); break;
+        case "Home": e.preventDefault(); irA(0, { foco: true }); break;
+        case "End": e.preventDefault(); irA(total - 1, { foco: true }); break;
+      }
+    });
+
+    railItems.forEach((a) => {
+      a.addEventListener("click", (e) => {
+        e.preventDefault();
+        const i = slides.findIndex((s) => s.id === a.dataset.target);
+        if (i !== -1) irA(i, { foco: true });
+      });
+    });
+
+    // Gesto táctil: se sigue el dedo en horizontal y al soltar se salta
+    // ±1 según la distancia. Un arrastre dominante en vertical se ignora
+    // (lo scrollea .unit-scroll — ver "touch-action: pan-y" en el CSS).
+    let x0 = 0, y0 = 0, dx = 0, sigo = false, resuelto = false;
+    track.addEventListener("touchstart", (e) => {
+      if (e.touches.length !== 1) return;
+      x0 = e.touches[0].clientX; y0 = e.touches[0].clientY;
+      dx = 0; sigo = true; resuelto = false;
     }, { passive: true });
+    track.addEventListener("touchmove", (e) => {
+      if (!sigo) return;
+      dx = e.touches[0].clientX - x0;
+      const dy = e.touches[0].clientY - y0;
+      if (!resuelto) {
+        resuelto = true;
+        if (Math.abs(dy) > Math.abs(dx)) { sigo = false; return; } // es scroll vertical
+      }
+      let off = dx;
+      if ((current === 0 && dx > 0) || (current === total - 1 && dx < 0)) off = dx * 0.3; // freno elástico
+      track.style.transition = "none";
+      track.style.transform = `translateX(calc(-${current * 100}% + ${off}px))`;
+    }, { passive: true });
+    track.addEventListener("touchend", () => {
+      if (!sigo) { track.style.transition = ""; return; }
+      sigo = false;
+      track.style.transition = "";
+      const ancho = track.clientWidth || 1;
+      if (dx <= -ancho * 0.2) irA(current + 1);
+      else if (dx >= ancho * 0.2) irA(current - 1);
+      else pintar(); // no llegó al umbral: vuelve a encuadrar la actual
+    }, { passive: true });
+
+    // Deep-link inicial: #id de un recurso abre esa diapositiva, sin que
+    // "vuele" desde el hero al cargar.
+    const hashId = decodeURIComponent(location.hash.slice(1));
+    const hashIdx = hashId ? slides.findIndex((s) => s.id === hashId) : -1;
+    current = hashIdx > 0 ? hashIdx : 0;
+    track.style.transition = "none";
+    pintar();
+    track.getBoundingClientRect(); // fuerza reflow para fijar el estado sin animación
+    track.style.transition = "";
   }
 
   /* ---------------------------------------------------------------------
-   * 11. Modal de pantalla completa — un embed (video/documento) o, para
+   * 8. Modal de pantalla completa — un embed (video/documento) o, para
    *     una actividad con descripción HTML, ese HTML directamente (es el
    *     único lugar donde se puede mostrar sin romper el layout del
    *     recurso que lo contiene).
@@ -877,7 +1052,7 @@
   }
 
   /* ---------------------------------------------------------------------
-   * 11b. Modal de lectura — propio (no el genérico de arriba): panel
+   * 8b. Modal de lectura — propio (no el genérico de arriba): panel
    *      "tapa de libro" a la izquierda + documento real embebido a la
    *      derecha. Solo lo abren los ítems "embebido":true de "lecturas".
    * ------------------------------------------------------------------- */
@@ -908,7 +1083,7 @@
   }
 
   /* ---------------------------------------------------------------------
-   * 12. Arranque
+   * Arranque
    * ------------------------------------------------------------------- */
   document.addEventListener("DOMContentLoaded", () => {
     const datos = obtenerDatos();
@@ -916,7 +1091,5 @@
     renderContenido(datos);
     initMediaModal();
     initReadingModal();
-    initScrollProgress();
-    initHeroParallax();
   });
 })();

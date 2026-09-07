@@ -27,11 +27,49 @@
 
 <div class="scroll-progress" id="scrollProgress" aria-hidden="true"></div>
 
-<!-- Riel de navegación: vertical y flotante a la izquierda en escritorio;
-     el mismo componente se convierte en un dock horizontal flotante abajo
-     en pantallas angostas (no desaparece, se adapta) — ahí los puntos son
-     solo ícono (compactos, sin importar cuántos recursos haya) y el
-     nombre completo del recurso activo se lee en la etiqueta de arriba. -->
+<!-- Flechas del mazo: burbujas contextuales que pasan a la diapositiva
+     anterior/siguiente y muestran su nombre + ícono (initDeck() los
+     reescribe en cada cambio). initDeck las muestra/oculta según haya
+     recurso a los lados; al hacer clic "explotan" (clase .is-popping)
+     antes de navegar. Los <span> bubble-pop-* son solo decoración de esa
+     animación. -->
+<button class="deck-arrow deck-arrow--prev" id="deckPrev" type="button" aria-label="Recurso anterior" hidden>
+  <span class="bubble-pop-flash" aria-hidden="true"></span>
+  <span class="bubble-pop-drops" aria-hidden="true">
+    <span class="bubble-pop-drop" style="--angle: 0deg;"></span>
+    <span class="bubble-pop-drop" style="--angle: 45deg;"></span>
+    <span class="bubble-pop-drop" style="--angle: 90deg;"></span>
+    <span class="bubble-pop-drop" style="--angle: 135deg;"></span>
+    <span class="bubble-pop-drop" style="--angle: 180deg;"></span>
+    <span class="bubble-pop-drop" style="--angle: 225deg;"></span>
+    <span class="bubble-pop-drop" style="--angle: 270deg;"></span>
+    <span class="bubble-pop-drop" style="--angle: 315deg;"></span>
+  </span>
+  <span class="deck-arrow-label">Anterior</span>
+  <i class="fa-solid fa-chevron-left" aria-hidden="true"></i>
+</button>
+<button class="deck-arrow deck-arrow--next" id="deckNext" type="button" aria-label="Recurso siguiente" hidden>
+  <span class="bubble-pop-flash" aria-hidden="true"></span>
+  <span class="bubble-pop-drops" aria-hidden="true">
+    <span class="bubble-pop-drop" style="--angle: 0deg;"></span>
+    <span class="bubble-pop-drop" style="--angle: 45deg;"></span>
+    <span class="bubble-pop-drop" style="--angle: 90deg;"></span>
+    <span class="bubble-pop-drop" style="--angle: 135deg;"></span>
+    <span class="bubble-pop-drop" style="--angle: 180deg;"></span>
+    <span class="bubble-pop-drop" style="--angle: 225deg;"></span>
+    <span class="bubble-pop-drop" style="--angle: 270deg;"></span>
+    <span class="bubble-pop-drop" style="--angle: 315deg;"></span>
+  </span>
+  <span class="deck-arrow-label">Siguiente</span>
+  <i class="fa-solid fa-chevron-right" aria-hidden="true"></i>
+</button>
+
+<!-- Riel de navegación: dock horizontal flotante y fijo abajo en
+     escritorio (barra fija arriba en móvil). A la izquierda, el panel
+     "recurso actual" (ícono + nombre + X/Y); a la derecha, un punto por
+     recurso — icono siempre visible, etiqueta que aparece al pasar el
+     cursor o en el activo. renderNav() lo llena (con un ítem "Inicio"
+     para el hero) e initDeck() centra el punto activo. -->
 <nav class="unit-rail" id="unitRail" aria-label="Índice de recursos de la unidad" hidden>
   <div class="unit-rail-current" id="unitRailCurrent" aria-hidden="true">
     <span class="unit-rail-current-icon" id="unitRailCurrentIcon"><i class="fa-solid fa-shapes"></i></span>
@@ -41,36 +79,47 @@
   <div class="unit-rail-track" id="unitRailTrack"></div>
 </nav>
 
-<header class="hero" id="hero">
-  <div class="hero-dots" aria-hidden="true"></div>
-  <div class="hero-blob hero-blob--gold" aria-hidden="true"></div>
-  <div class="hero-blob hero-blob--cyan" aria-hidden="true"></div>
-  <div class="hero-blob hero-blob--gold2" aria-hidden="true"></div>
-  <div class="hero-inner">
-    <a class="hero-back" id="heroBack" href="#" target="_blank" rel="noopener" hidden>
-      <i class="fa-solid fa-arrow-left" aria-hidden="true"></i> Volver a las unidades
-    </a>
-    <span class="hero-eyebrow">UNIDAD</span>
-    <h1 class="hero-title" id="heroUnidad">Nombre de la unidad</h1>
-    <p class="hero-subtitle" id="heroTitulo" hidden></p>
-    <p class="hero-desc" id="heroDescripcion"></p>
-  </div>
-  <div class="hero-scrolltip" id="heroScrollTip" hidden>
-    <span>Desliza para comenzar</span>
-    <i class="fa-solid fa-chevron-down" aria-hidden="true"></i>
-  </div>
-</header>
+<!-- La pista del mazo, dentro de un envoltorio que solo recorta
+     (.unit-deck-clip) — el transform que la desplaza va en #unitMain, en
+     un nodo APARTE del que recorta, ver el comentario en styles.css.
+     Primera diapositiva: el hero (siempre, no ocultable). Segunda si no
+     hay recursos: el estado vacío. Luego, inyectadas por
+     renderContenido(), una <section.unit-section> por recurso. -->
+<div class="unit-deck-clip">
+  <main class="unit-main" id="unitMain">
+    <section class="unit-slide unit-slide--hero" id="heroSlide" aria-roledescription="diapositiva" aria-label="Inicio de la unidad" tabindex="-1">
+      <div class="unit-slide-scroll">
+        <header class="hero" id="hero">
+          <div class="hero-dots" aria-hidden="true"></div>
+          <div class="hero-blob hero-blob--gold" aria-hidden="true"></div>
+          <div class="hero-blob hero-blob--cyan" aria-hidden="true"></div>
+          <div class="hero-blob hero-blob--gold2" aria-hidden="true"></div>
+          <div class="hero-inner">
+            <a class="hero-back" id="heroBack" href="#" target="_blank" rel="noopener" hidden>
+              <i class="fa-solid fa-arrow-left" aria-hidden="true"></i> Volver a las unidades
+            </a>
+            <span class="hero-eyebrow">UNIDAD</span>
+            <h1 class="hero-title" id="heroUnidad">Nombre de la unidad</h1>
+            <p class="hero-subtitle" id="heroTitulo" hidden></p>
+            <p class="hero-desc" id="heroDescripcion"></p>
+          </div>
+        </header>
+        <div class="unit-stats-wrap" id="unitStatsWrap" hidden>
+          <div class="unit-stats" id="unitStats"></div>
+        </div>
+        <div class="hero-scrolltip" id="heroScrollTip" hidden>
+          <span>Explora con el riel o las flechas</span>
+          <i class="fa-solid fa-chevron-right" aria-hidden="true"></i>
+        </div>
+      </div>
+    </section>
 
-<div class="unit-stats-wrap" id="unitStatsWrap" hidden>
-  <div class="unit-stats" id="unitStats"></div>
+    <div class="unit-empty" id="unitEmpty" aria-roledescription="diapositiva" tabindex="-1" hidden>
+      <i class="fa-solid fa-box-open" aria-hidden="true"></i>
+      <p>Esta unidad todavía no tiene recursos.</p>
+    </div>
+  </main>
 </div>
-
-<div class="unit-empty" id="unitEmpty" hidden>
-  <i class="fa-solid fa-box-open" aria-hidden="true"></i>
-  <p>Esta unidad todavía no tiene recursos.</p>
-</div>
-
-<main class="unit-main" id="unitMain"></main>
 
 <div class="media-modal-overlay" id="mediaModalOverlay">
   <div class="media-modal" role="dialog" aria-modal="true" aria-labelledby="mediaModalTitle">

@@ -1,0 +1,18 @@
+# Material de trabajo local — NO se publica en Pages.
+# El visor son solo: index.html, assets/, README.md, .nojekyll
+
+# Prototipos / versiones de referencia (no son el visor real)
+/visor_no_scroll/
+/visor-completo-estatico/
+/secciones-aisladas/
+/semanas-secciones-aisladas.zip
+
+# Banco de pruebas local y notas sueltas
+/prueba-visor-unidad.html
+/promt.txt
+/prompt.txt
+
+# Basura de sistema / editor
+.DS_Store
+Thumbs.db
+*.log

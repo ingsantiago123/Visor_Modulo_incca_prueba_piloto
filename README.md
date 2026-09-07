@@ -261,7 +261,7 @@ Antes de mirar los campos propios de cada `tipo`, estos aplican siempre:
 | `documento` | Un documento embebido (PDF/Drive) con acciones (pantalla completa, abrir, adjunto) | `iframe_url` |
 | `enlaces` | Lista de referencias externas genéricas, para leer (no se embeben) | `items[].url` |
 | `lecturas` | Lecturas específicamente — documento + audiolibro opcional, dos plantillas visuales (`apoyo`/`complementarias`) | `variante`, `items[].audio_url`, `items[].embebido` |
-| `actividades` | Actividades con nombre + link + descripción plegable (texto o HTML) | `items[].descripcion`, `items[].descripcion_html` |
+| `actividades` | Actividades con nombre + link + tipo + descripción plegable (texto o HTML); diseño de lista o ampliado según haya varias o una sola | `items[].tipo`, `items[].descripcion`, `items[].descripcion_html` |
 | `personalizado` | HTML o iframe de confianza, para lo que no encaje en los otros 6 | `html` / `iframe` |
 
 Detalle completo de cada uno, con su JSON de ejemplo, abajo.
@@ -418,12 +418,14 @@ suma; acá competiría por espacio con la lectura en sí.
   "items": [
     {
       "nombre": "Foro: comparte tu idea de investigación",
+      "tipo": "foro",                       // opcional — color/ícono/etiqueta
       "link": "https://moodle.../mod/forum/view.php?id=501",
       "descripcion": "Texto plano.\n\nSegundo párrafo, separado por línea en blanco.",
       "descripcion_html": false
     },
     {
       "nombre": "Taller: de la idea al problema",
+      "tipo": "taller",
       "link": "https://moodle.../mod/assign/view.php?id=502",
       "descripcion": "<p>HTML con <strong>formato</strong>, tablas, imágenes, lo que sea.</p>",
       "descripcion_html": true
@@ -432,10 +434,23 @@ suma; acá competiría por espacio con la lectura en sí.
 }
 ```
 
+**Dos diseños, elegidos automáticamente por la cantidad de ítems:**
+
+- **Varias actividades** → lista de filas compactas plegables, conectadas
+  por una línea de tiempo (como el acordeón de lecciones de `texto`).
+- **Una sola actividad** → `unit-activities--single`: índice, ícono,
+  nombre y espaciado ampliados, y la única tarjeta arranca abierta (no
+  tiene sentido pedir un clic extra para ver el único contenido).
+
+Cada actividad además lleva **color, ícono y una etiqueta de tipo**
+(`Quiz`, `Tarea`, `Foro`, `Taller`, `Entrega`, `Examen`) — en la barra
+superior de la tarjeta, el índice y el botón "ir".
+
 | Campo | Tipo | Default | Notas |
 |---|---|---|---|
-| `items` | array de `{ nombre, link, descripcion, descripcion_html }` | `[]` | Con 0 ítems: "Todavía no hay actividades para este recurso." Con exactamente 1 ítem, la fila se agranda, se destaca y arranca ya abierta (no lleva la línea conectora del acordeón). Con 2+, son filas compactas conectadas por una línea de tiempo. |
+| `items` | array de `{ nombre, tipo, link, descripcion, descripcion_html }` | `[]` | Con 0 ítems: "Todavía no hay actividades para este recurso." Con exactamente 1 ítem se usa el diseño ampliado `--single` y arranca abierta. Con 2+, filas compactas conectadas por una línea de tiempo. |
 | `items[].nombre` | string | `""` | Encabezado de la fila. Es interactivo (acordeón) SOLO si `descripcion` no está vacía. |
+| `items[].tipo` | string | Se **infiere del `link`** (`mod/quiz` → `quiz`, `mod/forum` → `foro`, `mod/workshop` → `taller`, `mod/assign` → `tarea`) y, si no matchea nada, `tarea` | Uno de `quiz`, `tarea`, `foro`, `taller`, `entrega`, `examen`. Define el color, el ícono y la etiqueta de la tarjeta — nada más (no cambia el comportamiento). Un valor no reconocido cae en `tarea`. |
 | `items[].link` | string (URL) | `""` → no aparece el botón "ir a la actividad" | Botón redondo con flecha, **siempre visible** a un costado de la fila (no depende de expandir nada), más un segundo botón flotante idéntico DENTRO del popup si `descripcion_html: true` (para no tener que cerrar el popup y volver a la fila para ir a hacer la actividad). |
 | `items[].descripcion` | string (texto plano o HTML) | `""` → el nombre no es interactivo, no hay flecha de acordeón | Qué es (texto o HTML) lo decide **exclusivamente** `descripcion_html` — el visor nunca intenta adivinarlo mirando el contenido del string, porque eso es frágil (un texto plano que por accidente contenga `<` rompería la detección). |
 | `items[].descripcion_html` | boolean | `false` (texto plano — el caso más seguro) | `false`/ausente → al expandir la fila, el texto se muestra **inline**, escapado (`escapeHtml()`) y partido en párrafos por línea en blanco (`\n\n`) — así que aunque el texto contenga `<`/`>` por accidente, nunca se interpreta como etiquetas. `true` → el HTML **no** se muestra inline (arriesgaría el layout de toda la sección con estilos/tablas ajenos) — en su lugar, al expandir aparece un botón "Ver actividad completa" que abre ese HTML tal cual, con tipografía propia y scroll, dentro del modal de pantalla completa. |
@@ -537,22 +552,38 @@ franja de estadísticas del hero.
 
 ## Interfaz
 
-- **Hero** (el único elemento que NO se puede ocultar/reordenar desde
-  el JSON — siempre existe, siempre primero) de ancho completo con
-  degradado institucional, título palabra por palabra con entrada
-  escalonada, textura de puntos y blobs con parallax al hacer scroll.
+El visor es un **mazo de diapositivas horizontal**: el `<body>` no
+scrollea nunca. El hero y cada recurso son una diapositiva del ancho del
+viewport dentro de `.unit-main`, una pista que se traslada en X con
+`transform` (no con scroll — un transform no lo "cancela" un cambio de
+layout, cosa que sí le pasa al scroll con `scroll-snap`). Si el contenido
+de una diapositiva no cabe en el alto, scrollea **dentro** de ella.
+
+- **Hero** (el único elemento que NO se puede ocultar/reordenar desde el
+  JSON — siempre existe, siempre primero): degradado institucional,
+  título palabra por palabra con entrada escalonada, textura de puntos y
+  blobs animados. Si la unidad trae al menos un recurso `actividades`,
+  aparece además un **CTA "Ir a actividades"** flotante que salta directo
+  a esa diapositiva (con el total de actividades como badge).
 - **Franja de estadísticas** flotando sobre el borde inferior del hero.
 - **Cada recurso es un capítulo a pantalla completa** con tema propio
   (claro/oscuro/papel/cálido/acento según su tipo), número de paso como
   marca de agua gigante de fondo (sincronizada con el orden final, ver
   arriba), y una plantilla visual exclusiva por tipo.
-- **Navegación**: un único riel flotante que se adapta en vez de
-  desaparecer. En escritorio (≥980px) es vertical a la izquierda, expande
-  sus etiquetas al pasar el mouse y su línea de progreso se llena según
-  el recurso activo. Por debajo de 980px se reorienta a un dock
-  horizontal flotante abajo, con scroll lateral e ícono-solamente por
-  ítem (escala a cualquier cantidad de recursos sin verse apretado), con
-  el nombre completo del recurso activo en una etiqueta fija arriba.
+- **Navegación** — se pasa de una diapositiva a otra con:
+  - **Riel inferior** (dock flotante en escritorio, barra fija arriba en
+    móvil): un punto por recurso más un punto "Inicio" para el hero;
+    ícono siempre visible, etiqueta al pasar el cursor / en el activo. El
+    punto activo se centra solo en la pista. A la izquierda, un panel con
+    el nombre del recurso actual y su posición (X/Y).
+  - **Flechas contextuales** en los bordes: cada una muestra el nombre y
+    el ícono del recurso vecino (no un genérico "‹/›"), y al hacer clic
+    "explotan" como burbuja antes de pasar. Se ocultan en el primer/último
+    recurso.
+  - **Teclado** (←/→, AvPág/RePág, Inicio/Fin), **swipe** en táctil, y el
+    deep-link `#id-del-recurso` para abrir directo una diapositiva.
+  - **Barra de progreso** arriba de todo, se llena según el índice de la
+    diapositiva activa.
 - **Modal de pantalla completa**, compartido por video, documento y las
   descripciones HTML de `actividades` (fondo con blur, animación de
   entrada, cierra con Escape/clic afuera, destruye el contenido al
@@ -560,9 +591,8 @@ franja de estadísticas del hero.
   `lecturas` NO usan este: tienen su propio **modal de lectura**, de una
   sola columna, pensado para maximizar el espacio de lectura (ver la
   sección `lecturas` más arriba).
-- Revelado en cascada (marca de agua → eyebrow → título → cuerpo) al
-  entrar cada sección en pantalla, más barra de progreso de lectura
-  arriba de todo; todo respeta `prefers-reduced-motion`.
+- Todo respeta `prefers-reduced-motion` (sin animación de burbuja, sin
+  scroll suave del riel, revelado inmediato).
 - 100% responsive, sin dependencias de build — funciona directo en
   GitHub Pages.
 
