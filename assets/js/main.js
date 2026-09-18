@@ -362,7 +362,7 @@
         </span>
       </button>`);
   }
-
+ 
   /**
    * Botón "Volver a las unidades": si este visor está embebido dentro de un
    * iframe (típicamente Moodle, con el mosaico ya abierto), le avisa al
@@ -1017,6 +1017,7 @@
   function mostrarModal(titulo, bodyHtml, link) {
     $("#mediaModalTitle").textContent = titulo || "";
     $("#mediaModalBody").innerHTML = bodyHtml;
+    vigilarEmbeds($("#mediaModalBody"));
     // Botón "ir a la actividad" flotando DENTRO del modal (además del que
     // ya está afuera, en la fila): así no hay que cerrar el popup para
     // ir a hacer la actividad — sería un paso de más.
@@ -1061,6 +1062,7 @@
     $("#readingModalFrame").innerHTML = embedUrl
       ? `<iframe src="${embedUrl}" title="${titulo || ""}" allow="autoplay; fullscreen" allowfullscreen></iframe>`
       : `<div class="unit-doc-frame-empty"><i class="fa-solid fa-file-circle-question" aria-hidden="true"></i><span>Este documento todavía no está disponible.</span></div>`;
+    vigilarEmbeds($("#readingModalFrame"));
     const audioBtn = $("#readingModalAudio");
     audioBtn.hidden = !audioUrl;
     if (audioUrl) audioBtn.href = audioUrl;
@@ -1083,12 +1085,178 @@
   }
 
   /* ---------------------------------------------------------------------
+   * 8c. Aviso de bloqueador de anuncios — los embeds (YouTube, Drive,
+   *      Vimeo…) vienen de dominios que muchos bloqueadores cortan, y el
+   *      resultado es un recuadro vacío sin explicación. Este visor es un
+   *      iframe cross-origin y el embed es otro adentro: no hay forma de
+   *      mirar dentro de él para saber si cargó, así que se comprueba
+   *      desde afuera, con dos señales:
+   *        1. Sondeo de red: un fetch "no-cors" al origen del embed. Si un
+   *           bloqueador corta la petición, rechaza enseguida con
+   *           TypeError; si el origen responde pasa (la respuesta opaca
+   *           no se lee, basta con que llegue). Se prefiere al "load" del
+   *           iframe porque ese se dispara también con la página de error.
+   *        2. Marco colapsado: uBlock/AdBlock esconden con display:none
+   *           el iframe que bloquean.
+   *      Es una heurística (no existe una API para saber si hay un
+   *      bloqueador), por eso el aviso siempre deja una salida: "Abrir en
+   *      pestaña nueva" y "Ocultar aviso". Un timeout NO cuenta como
+   *      bloqueo — internet lento no es lo mismo que un bloqueador.
+   * ------------------------------------------------------------------- */
+  const sondeos = new Map(); // origen del embed -> Promise<boolean> (true = bloqueado)
+
+  function sondearOrigen(url) {
+    let origen;
+    try { origen = new URL(url, location.href).origin; } catch (e) { return Promise.resolve(false); }
+    if (!/^https?:/.test(origen) || origen === location.origin) return Promise.resolve(false);
+    if (!sondeos.has(origen)) {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 8000);
+      sondeos.set(origen, fetch(url, { mode: "no-cors", credentials: "omit", signal: ctrl.signal })
+        .then(() => false, (e) => e.name !== "AbortError" && navigator.onLine !== false)
+        .finally(() => { clearTimeout(timer); ctrl.abort(); })); // abort: no bajar el cuerpo
+    }
+    return sondeos.get(origen);
+  }
+
+  let vigilancias = 0;
+
+  function vigilarEmbed(iframe) {
+    const src = iframe.getAttribute("src");
+    if (!src || iframe.dataset.vigilado) return;
+    // Cada vigilancia lleva su turno: al reintentar, los timers y listeners
+    // de la anterior (con su "bloqueado" viejo) quedan inertes.
+    const turno = (iframe.dataset.vigilado = String(++vigilancias));
+    let bloqueado = false;
+    const revisar = () => {
+      if (!iframe.isConnected || iframe.dataset.vigilado !== turno || iframe.dataset.avisoOculto) return;
+      if (bloqueado || getComputedStyle(iframe).display === "none") mostrarAvisoBloqueo(iframe);
+    };
+    sondearOrigen(src).then((b) => { bloqueado = b; revisar(); });
+    iframe.addEventListener("load", revisar, { once: true });
+    setTimeout(revisar, 3000); // los filtros cosméticos entran un poco después del "load"
+  }
+
+  function vigilarEmbeds(scope) {
+    $$("iframe", scope).forEach(vigilarEmbed);
+  }
+
+  function mostrarAvisoBloqueo(iframe) {
+    const host = iframe.parentElement;
+    if (!host || host.querySelector(".embed-blocked")) return;
+    if (getComputedStyle(host).position === "static") host.style.position = "relative";
+    const src = iframe.getAttribute("src");
+    let dominio = "";
+    try { dominio = new URL(src, location.href).hostname; } catch (e) { /* sin dominio que mostrar */ }
+
+    const aviso = document.createElement("div");
+    aviso.className = "embed-blocked";
+    aviso.setAttribute("role", "alert");
+    aviso.innerHTML = `
+      <span class="embed-blocked-icon" aria-hidden="true"><i class="fa-solid fa-shield-halved"></i></span>
+      <h4 class="embed-blocked-title">Desactiva el bloqueador de anuncios para ver este contenido</h4>
+      <p class="embed-blocked-text">Un bloqueador de anuncios está impidiendo que cargue el contenido de <strong class="embed-blocked-domain"></strong>.
+        Desactívalo para este sitio, recarga la página y vuelve a entrar.</p>
+      <div class="embed-blocked-actions">
+        <button class="unit-btn-solid embed-blocked-retry" type="button"><i class="fa-solid fa-rotate-right" aria-hidden="true"></i> Ya lo desactivé, reintentar</button>
+        <a class="unit-btn-outline embed-blocked-open" target="_blank" rel="noopener"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> Abrir en pestaña nueva</a>
+      </div>
+      <button class="embed-blocked-hide" type="button">Ocultar aviso</button>`;
+    $(".embed-blocked-domain", aviso).textContent = dominio || "este sitio";
+    $(".embed-blocked-open", aviso).href = src;
+    $(".embed-blocked-retry", aviso).addEventListener("click", () => {
+      aviso.remove();
+      sondeos.clear();
+      delete iframe.dataset.vigilado;
+      iframe.src = src; // vuelve a navegar el marco
+      vigilarEmbed(iframe);
+    });
+    $(".embed-blocked-hide", aviso).addEventListener("click", () => {
+      iframe.dataset.avisoOculto = "1"; // falso positivo: que no vuelva
+      aviso.remove();
+    });
+    host.appendChild(aviso);
+  }
+
+  /* ---------------------------------------------------------------------
+   * 8d. Aviso general de bloqueador de anuncios — complementa a 8c. Aquella
+   *      solo salta cuando UN embed concreto falla de un modo observable
+   *      desde afuera; pero un bloqueador puede romper el contenido POR
+   *      DENTRO del embed (peticiones del propio visor de Drive, p. ej.), y
+   *      eso, al ser cross-origin, es invisible. Por eso, además, se
+   *      detecta la presencia de un bloqueador en sí, con las dos pruebas
+   *      clásicas, y se avisa una vez por sesión con un cartel discreto que
+   *      no tapa nada:
+   *        1. Señuelo cosmético: un <div> con clases típicas de anuncio; si
+   *           el bloqueador lo esconde (offsetHeight 0 / display:none), hay
+   *           bloqueador.
+   *        2. Señuelo de red: un fetch "no-cors" a un script de anuncios
+   *           que las listas bloquean de plano.
+   *      El señuelo de red NO puede ser adsbygoogle.js, gpt.js ni ad_status.js
+   *      (los clásicos): uBlock Origin los "neutraliza" respondiendo un
+   *      sustituto inofensivo en vez de bloquearlos, así que el fetch pasa
+   *      igual (verificado con uBO Lite). conversion.js de googleadservices sí
+   *      lo bloquea. Sigue siendo una heurística: un bloqueador que no
+   *      toque ninguno de los dos señuelos pasa sin ser detectado.
+   * ------------------------------------------------------------------- */
+  const CLAVE_AVISO_CERRADO = "incca-visor-aviso-adblock-cerrado";
+  const URL_SENUELO_RED = "https://www.googleadservices.com/pagead/conversion.js";
+
+  function senuelosDeBloqueador() {
+    const senuelo = document.createElement("div");
+    senuelo.className = "adsbox ad-banner ad-placement pub_300x250 textAd banner_ad";
+    senuelo.style.cssText = "position:absolute;left:-9999px;top:-9999px;width:10px;height:10px";
+    senuelo.innerHTML = "&nbsp;";
+    document.body.appendChild(senuelo);
+    const cosmetico = new Promise((res) => setTimeout(() => {
+      const cs = getComputedStyle(senuelo);
+      res(!senuelo.isConnected || senuelo.offsetHeight === 0 || cs.display === "none" || cs.visibility === "hidden");
+      senuelo.remove();
+    }, 200));
+
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 8000);
+    const red = fetch(URL_SENUELO_RED, { mode: "no-cors", credentials: "omit", referrerPolicy: "no-referrer", signal: ctrl.signal })
+      .then(() => false, (e) => e.name !== "AbortError" && navigator.onLine !== false)
+      .finally(() => { clearTimeout(timer); ctrl.abort(); });
+
+    return Promise.all([cosmetico, red]).then(([a, b]) => a || b);
+  }
+
+  function avisoAdblockCerrado() {
+    try { return sessionStorage.getItem(CLAVE_AVISO_CERRADO) === "1"; } catch (e) { return false; }
+  }
+
+  function mostrarAvisoAdblock() {
+    if ($(".adblock-banner")) return;
+    const aviso = document.createElement("div");
+    aviso.className = "adblock-banner";
+    aviso.setAttribute("role", "status");
+    aviso.innerHTML = `
+      <i class="fa-solid fa-shield-halved adblock-banner-icon" aria-hidden="true"></i>
+      <p><strong>Detectamos un bloqueador de anuncios.</strong> Si algún video o documento no carga, desactívalo para este sitio y recarga la página.</p>
+      <button class="adblock-banner-close" type="button" aria-label="Cerrar aviso"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>`;
+    $(".adblock-banner-close", aviso).addEventListener("click", () => {
+      aviso.remove();
+      try { sessionStorage.setItem(CLAVE_AVISO_CERRADO, "1"); } catch (e) { /* sin storage: reaparece al recargar */ }
+    });
+    document.body.appendChild(aviso);
+  }
+
+  function initAvisoAdblock() {
+    if (avisoAdblockCerrado()) return;
+    senuelosDeBloqueador().then((hay) => { if (hay) mostrarAvisoAdblock(); });
+  }
+
+  /* ---------------------------------------------------------------------
    * Arranque
    * ------------------------------------------------------------------- */
   document.addEventListener("DOMContentLoaded", () => {
     const datos = obtenerDatos();
     renderHero(datos, datos.recursos.length > 0);
     renderContenido(datos);
+    vigilarEmbeds(document);
+    initAvisoAdblock();
     initMediaModal();
     initReadingModal();
   });

@@ -23,6 +23,7 @@ talleres).
 - [Esquema del JSON](#esquema-del-json)
   - [Los 7 tipos de recurso, de un vistazo](#los-7-tipos-de-recurso-de-un-vistazo)
 - [Enlaces embebidos automáticamente: `toEmbedUrl()`](#enlaces-embebidos-automáticamente-toembedurl)
+- [Aviso de bloqueador de anuncios](#aviso-de-bloqueador-de-anuncios)
 - [Estados vacíos y tolerancia a datos parciales](#estados-vacíos-y-tolerancia-a-datos-parciales)
 - [Franja de estadísticas: siempre calculada, nunca hardcodeada](#franja-de-estadísticas-siempre-calculada-nunca-hardcodeada)
 - [Interfaz](#interfaz)
@@ -508,6 +509,53 @@ orígenes). Se usa en `items[].url` de `video-grid`/`video` y en
 `iframe_url` de `documento` — **no** en `enlaces` (esos son para leer,
 no para embeber) ni en `personalizado.iframe` (ver arriba, ahí se usa
 tal cual a propósito).
+
+## Aviso de bloqueador de anuncios
+
+Los embeds (YouTube, Drive, Vimeo…) viven en dominios que muchos
+bloqueadores de anuncios cortan; sin aviso, el usuario ve un recuadro
+vacío. El visor lo detecta y pinta **encima del embed** un cartel:
+"Desactiva el bloqueador de anuncios para ver este contenido", con
+"Ya lo desactivé, reintentar", "Abrir en pestaña nueva" y "Ocultar aviso"
+(salida para los falsos positivos). Aplica a los iframes de `documento`,
+`personalizado.iframe`, y a los modales de video, documento y lecturas
+embebidas (`vigilarEmbeds()` en `main.js`).
+
+**Vive en el visor y no en el plugin de Moodle** porque el embed es un
+iframe dentro del iframe del visor: desde Moodle (otro origen) no se puede
+mirar adentro para saber si cargó. Tampoco sirve el detector clásico tipo
+BlockAdBlock (un `<div class="ads">` señuelo): detecta filtros que
+*esconden* banners, no los que cortan la petición al dominio. Se usan dos
+señales, ambas desde afuera:
+
+1. **Sondeo de red** — un `fetch` `no-cors` al origen del embed (una vez
+   por origen). Si un bloqueador lo corta, rechaza enseguida con
+   `TypeError`. Un timeout **no** cuenta como bloqueo (internet lento no es
+   un bloqueador). No se usa el evento `load` del iframe: se dispara
+   también con la página de error del navegador.
+2. **Marco colapsado** — uBlock/AdBlock esconden con `display:none` el
+   iframe que bloquean; se revisa al `load` y a los 3 s.
+
+Es una heurística: no existe una API para saber si hay un bloqueador. Un
+filtro que solo bloquee *sub-frames* (no peticiones `fetch`) y no colapse
+el marco pasa sin ser detectado. Un embed caído o una red corporativa que
+filtre YouTube/Drive dispararían el mismo cartel.
+
+### Cartel general (`initAvisoAdblock()`)
+
+Lo anterior solo salta cuando se abre un embed que falla de forma
+observable, y un bloqueador puede romper el contenido **por dentro** del
+embed (cross-origin, invisible). Por eso, al cargar, el visor también
+detecta la presencia de un bloqueador con dos señuelos —un `<div>` con
+clases de anuncio que el bloqueador esconde, y un `fetch` a
+`googleadservices.com/pagead/conversion.js`— y muestra un cartel discreto y
+descartable ("Detectamos un bloqueador de anuncios…") una vez por sesión
+(se recuerda el cierre en `sessionStorage`).
+
+El señuelo de red **no** es `adsbygoogle.js`, `gpt.js` ni `ad_status.js`
+(los clásicos): uBlock Origin los neutraliza con un sustituto inofensivo y
+el `fetch` pasa igual. Verificado cargando uBlock Origin Lite real en
+Chromium: con esos tres el cartel no salta; con `conversion.js` sí.
 
 ## Estados vacíos y tolerancia a datos parciales
 
